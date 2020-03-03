@@ -2,7 +2,7 @@
 
 *Continuous Integration. Continuous Improvement.*
 
-Fire Dynamics Simulator ([FDS](https://github.com/firemodels/fds)) is a large-eddy simulation (LES) code for low-speed flows, with an emphasis on smoke and heat transport from fires.
+Fire Dynamics Simulator ([FDS](https://github.com/firemodels/fds)) is a large-eddy simulation (LES) code for low-speed flows, with an emphasis on smoke and heat transport from fires. This repository is WFDS (Wildland-urban interface Fire Dynammics Simulator), a fork of FDS, whose purpose is to supply an interim code with WFDS capabilities while FDS and WFDS are reconciled. WFDS has additional or more complete versions of both vegetation models and simple fire front propagation models based on a level set approach.
 
 Smokeview ([SMV](https://github.com/firemodels/smv)) is a visualization program used to display the output of FDS and [CFAST](https://github.com/firemodels/cfast) simulations.
 
