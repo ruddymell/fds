@@ -2930,6 +2930,20 @@ ELSE
    IF (SF%RAMP_T_I_INDEX < 0) WC%ONE_D%TMP_F = M%TMP_0(WC%ONE_D%KK)
 ENDIF
 
+! Fill vegetation arrays
+
+IF (SF%VEGETATION .AND. .NOT.EVACUATION_ONLY(NM)) THEN
+
+   WC%ONE_D%VEG_FUELMASS_L(:)  = SF%VEG_LOAD / SF%NVEG_L
+   WC%ONE_D%VEG_MOISTMASS_L(:) = SF%VEG_MOISTURE*WC%VEG_FUELMASS_L(:)
+   WC%ONE_D%VEG_TMP_L(:)       = SF%VEG_INITIAL_TEMP + 273.15_EB
+   WC%ONE_D%VEG_CHARMASS_L(:)  = 0.0_EB
+   WC%ONE_D%VEG_ASHMASS_L(:)   = 0.0_EB
+   WC%ONE_D%TMP_F        = SF%VEG_INITIAL_TEMP + 273.15_EB
+   IF(SF%VEG_NO_BURN) WC%ONE_D%TMP_F = TMPA
+
+ENDIF
+
 ! Record original boundary condition index for exterior wall cells that might get covered up
 
 IF (OBST_INDEX==0) WC%SURF_INDEX_ORIG = SURF_INDEX_NEW

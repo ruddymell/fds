@@ -916,6 +916,7 @@ IF (ANY(ABS(OVEC)>TWO_EPSILON_EB)) CALL CORIOLIS_FORCE             ! Coriolis fo
 IF (PATCH_VELOCITY)                CALL PATCH_VELOCITY_FLUX        ! Specified patch velocity
 IF (PERIODIC_TEST==7)              CALL MMS_VELOCITY_FLUX          ! Source term in manufactured solution
 IF (PERIODIC_TEST==21 .OR. PERIODIC_TEST==22 .OR. PERIODIC_TEST==23) CALL ROTATED_CUBE_VELOCITY_FLUX(NM,T)
+IF (WFDS_BNDRYFUEL)                CALL VEGETATION_DRAG            ! Surface vegetation drag
 
 
 CONTAINS
@@ -1346,6 +1347,42 @@ DEVC_LOOP: DO N=1,N_DEVC
 ENDDO DEVC_LOOP
 
 END SUBROUTINE PATCH_VELOCITY_FLUX
+
+SUBROUTINE VEGETATION_DRAG()
+!Drag for boundary fuel veg
+REAL(EB) :: VEG_UMAG
+INTEGER :: KKG
+
+DO K=1,MIN(8,KBAR)
+   DO J=1,JBAR
+      DO I=0,IBAR
+         IF (VEG_DRAG(I,J,0) == -1._EB) CYCLE
+         KKG = INT(VEG_DRAG(I,J,0))+K-1
+         VEG_UMAG = SQRT(UU(I,J,KKG)**2 + VV(I,J,KKG)**2 + WW(I,J,KKG)**2) ! VEG_UMAG=2._EB*KRES(I,J,K)
+         FVX(I,J,KKG) = FVX(I,J,KKG) + 0.5_EB*VEG_DRAG(I,J,K)*VEG_UMAG*UU(I,J,KKG)
+      ENDDO
+   ENDDO
+
+   DO J=0,JBAR
+      DO I=1,IBAR
+         IF (VEG_DRAG(I,J,0) == -1._EB) CYCLE
+         KKG = INT(VEG_DRAG(I,J,0))+K-1
+         VEG_UMAG = SQRT(UU(I,J,KKG)**2 + VV(I,J,KKG)**2 + WW(I,J,KKG)**2)
+         FVY(I,J,KKG) = FVY(I,J,KKG) + 0.5_EB*VEG_DRAG(I,J,K)*VEG_UMAG*VV(I,J,KKG)
+      ENDDO
+   ENDDO
+
+   DO J=1,JBAR
+      DO I=1,IBAR
+         IF (VEG_DRAG(I,J,0) == -1._EB) CYCLE
+         KKG = INT(VEG_DRAG(I,J,0))+K-1
+         VEG_UMAG = SQRT(UU(I,J,KKG)**2 + VV(I,J,KKG)**2 + WW(I,J,KKG)**2)
+         FVZ(I,J,KKG) = FVZ(I,J,KKG) + 0.5_EB*VEG_DRAG(I,J,K)*VEG_UMAG*WW(I,J,KKG)
+      ENDDO
+   ENDDO
+ENDDO
+
+END SUBROUTINE VEGETATION_DRAG
 
 END SUBROUTINE VELOCITY_FLUX
 
