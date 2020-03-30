@@ -6,16 +6,20 @@ USE COMP_FUNCTIONS
 USE PRECISION_PARAMETERS
 USE GLOBAL_CONSTANTS
 USE MESH_POINTERS
+USE PART
 USE MEMORY_FUNCTIONS, ONLY: CHKMEMERR
 IMPLICIT NONE
 PRIVATE
 PUBLIC INITIALIZE_LEVEL_SET_FIRESPREAD_1,INITIALIZE_LEVEL_SET_FIRESPREAD_2,LEVEL_SET_FIRESPREAD, &
-       BNDRY_VEG_MASS_ENERGY_TRANSFER
+       BNDRY_VEG_MASS_ENERGY_TRANSFER,RAISED_VEG_MASS_ENERGY_TRANSFER
 INTEGER :: IZERO
 INTEGER  :: LIMITER_LS
 REAL(EB) :: B_ROTH,BETA_OP_ROTH,C_ROTH,E_ROTH
 REAL(EB), POINTER, DIMENSION(:,:) :: PHI_LS_P
 REAL(EB), PARAMETER :: PHI_LS_MIN=-1._EB, PHI_LS_MAX=1._EB
+
+TYPE(LAGRANGIAN_PARTICLE_TYPE), POINTER :: LP         !WFDS6
+TYPE(LAGRANGIAN_PARTICLE_CLASS_TYPE), POINTER :: LPC  !WFDS6
 
 CONTAINS
 
@@ -1716,5 +1720,740 @@ ENDIF
 SCALAR_FACE_VALUE_LS = ZUP + 0.5_EB * B * ( ZDWN - ZUP )
 
 END FUNCTION SCALAR_FACE_VALUE_LS
+
+SUBROUTINE RAISED_VEG_MASS_ENERGY_TRANSFER(T,DT,NM)
+    
+! Mass and energy transfer between gas and raised vegetation fuel elements 
+!
+USE PHYSICAL_FUNCTIONS, ONLY : GET_MASS_FRACTION,GET_SPECIFIC_HEAT,GET_CONDUCTIVITY,GET_VISCOSITY
+USE MATH_FUNCTIONS, ONLY : AFILL2
+USE TRAN, ONLY: GET_IJK
+!arrays for debugging
+!REAL(EB), POINTER, DIMENSION(:,:,:) :: HOLD1,HOLD2,HOLD3,HOLD4
+REAL(EB), POINTER, DIMENSION(:,:,:) :: UU,VV,WW !,RHOP
+
+REAL(EB), INTENT(IN) :: DT,T
+REAL(EB) :: RE_D,RCP_GAS,CP_GAS
+REAL(EB) :: RDT,V_CELL,V_VEG
+REAL(EB) :: CP_ASH,CP_H2O,CP_CHAR,H_VAP_H2O,TMP_H2O_BOIL
+REAL(EB) :: K_GAS,MU_GAS,RHO_GAS,RRHO_GAS_NEW,TMP_FILM,TMP_GAS,UBAR,VBAR,WBAR,UREL,VREL,WREL
+REAL(EB) :: CHAR_FCTR,CHAR_FCTR2,CP_VEG,DTMP_VEG,MPV_MOIST,MPV_MOIST_MIN,DMPV_VEG,MPV_VEG,MPV_VEG_MIN, &
+            SV_VEG,TMP_VEG,TMP_VEG_NEW
+!REAL(EB) :: TMP_IGNITOR
+REAL(EB) :: MPV_ADDED,MPV_MOIST_LOSS,MPV_VOLIT,MPV_CHAR_LOSS_MAX,MPV_MOIST_LOSS_MAX,MPV_VOLIT_MAX
+REAL(EB) :: QCON_VEG,QNET_VEG,QRAD_VEG,QREL,TMP_GMV,Q_FOR_DRYING,Q_VOLIT,Q_FOR_VOLIT, &
+            Q_UPTO_VOLIT
+REAL(EB) :: H_SENS_VEG_VOLIT,Q_ENTHALPY,Q_VEG_MOIST,Q_VEG_VOLIT,Q_VEG_CHAR
+REAL(EB) :: MW_AVERAGE,MW_VEG_MOIST_TERM,MW_VEG_VOLIT_TERM
+REAL(EB) :: XI,YJ,ZK
+REAL(EB) :: A_H2O_VEG,E_H2O_VEG,A_PYR_VEG,E_PYR_VEG,H_PYR_VEG,R_H_PYR_VEG
+REAL(EB) :: A_CHAR_VEG,E_CHAR_VEG,BETA_CHAR_VEG,NU_CHAR_VEG,NU_ASH_VEG,NU_O2_CHAR_VEG, &
+            MPV_ASH,MPV_ASH_MAX,MPV_CHAR,MPV_CHAR_LOSS,MPV_CHAR_MIN,MPV_CHAR_CO2,MPV_CHAR_O2,Y_O2, &
+            H_CHAR_VEG ,ORIG_PACKING_RATIO,CP_VEG_FUEL_AND_CHAR_MASS,CP_MASS_VEG_SOLID,     &
+            TMP_CHAR_MAX
+REAL(EB) :: ZZ_GET(1:N_TRACKED_SPECIES)
+INTEGER :: I,II,JJ,KK,IIX,JJY,KKZ,IPC,I_FUEL
+INTEGER, INTENT(IN) :: NM
+LOGICAL :: VEG_DEGRADATION_LINEAR,VEG_DEGRADATION_ARRHENIUS
+!INTEGER :: IDT
+REAL(EB) :: Q_VEG_CHAR_TOTAL,MPV_CHAR_CO2_TOTAL,MPV_CHAR_O2_TOTAL,MPV_CHAR_LOSS_TOTAL, &
+            MPV_MOIST_LOSS_TOTAL,MPV_VOLIT_TOTAL,VEG_VF
+REAL(EB) :: VEG_CRITICAL_MASSFLUX,VEG_CRITICAL_MASSSOURCE
+REAL(EB) :: CM,CN
+REAL(EB) :: HCON_VEG_FORCED,HCON_VEG_FREE,LENGTH_SCALE,NUSS_HILPERT_CYL_FORCEDCONV,NUSS_MORGAN_CYL_FREECONV,RAYLEIGH_NUM, &
+            R_VEG_CYL_DIAM,HC_VERT_CYL,HC_HORI_CYL
+
+!place holder
+REAL(EB) :: RCP_TEMPORARY
+
+!Debug
+REAL(EB)TOTAL_BULKDENS_MOIST,TOTAL_BULKDENS_DRY_FUEL,TOTAL_MASS_DRY_FUEL,TOTAL_MASS_MOIST
+
+
+!IF (.NOT. TREE_MESH(NM)) RETURN !Exit if raised veg is not present in mesh
+CALL POINT_TO_MESH(NM)
+
+UU => U
+VV => V
+WW => W
+
+! Initializations
+
+RDT    = 1._EB/DT
+RCP_TEMPORARY = 1._EB/1010._EB
+
+!Critical mass flux (kg/(s m^2)
+VEG_CRITICAL_MASSFLUX = 0.0025_EB !kg/s/m^2 for qradinc=50 kW/m^2, M=4% measured by McAllister Fire Safety J., 61:200-206 2013
+!VEG_CRITICAL_MASSFLUX = 0.0035_EB !kg/s/m^2 largest measured by McAllister Fire Safety J., 61:200-206 2013
+!VEG_CRITICAL_MASSFLUX = 999999._EB !kg/s/m^2 for testing
+
+!Constants for Arrhenius pyrolyis and Arrhenius char oxidation models
+!are from the literature (Porterie et al., Num. Heat Transfer, 47:571-591, 2005)
+CP_H2O       = 4190._EB !J/kg/K specific heat of water
+TMP_H2O_BOIL = 373.15_EB
+TMP_CHAR_MAX = 1300._EB !K
+
+!Kinetic constants used by multiple investigators from Porterie or Morvan papers
+!VEG_A_H2O      = 600000._EB !1/s sqrt(K)
+!VEG_E_H2O      = 5800._EB !K
+!VEG_A_PYR      = 36300._EB !1/s
+!VEG_E_PYR      = 7250._EB !K
+!VEG_E_CHAR     = 9000._EB !K
+!VEG_BETA_CHAR  = 0.2_EB
+!!VEG_NU_CHAR    = 0.3_EB
+!!VEG_NU_ASH     = 0.1_EB
+!VEG_NU_O2_CHAR = 1.65_EB
+
+!CP_ASH         = 800._EB !J/kg/K
+
+!Kinetic constants used by Morvan and Porterie mostly obtained from Grishin
+!VEG_H_PYR      = 418000._EB !J/kg 
+!VEG_A_CHAR     = 430._EB !m/s 
+!VEG_H_CHAR     = -12.0E+6_EB ! J/kg
+
+!Kinetic constants used by Yolanda and Paul
+!VEG_H_PYR      = 418000._EB !J/kg 
+!VEG_A_CHAR     = 215._EB !m/s Yolanda, adjusted from Morvan, Porterie values based on HRR exp
+!VEG_H_CHAR     = -32.74E+6_EB !J/kg via Susott
+
+!Kinetic constants used by Shankar
+!VEG_H_PYR      = 418._EB !J/kg Shankar
+!VEG_A_CHAR     = 430._EB !m/s Porterie, Morvan
+!VEG_H_CHAR     = -32.74E+6_EB !J/kg Shankar via Susott
+
+!Kinetic constants used by me for ROS vs Slope excelsior experiments
+!VEG_H_PYR      = 711000._EB !J/kg excelsior Catchpole et al. (via Susott)
+!VEG_A_CHAR     = 430._EB !m/s Porterie, Morvan
+!VEG_H_CHAR     = -32.74E+6_EB !J/kg via Susott
+
+!R_H_PYR_VEG    = 1._EB/H_PYR_VEG
+
+!D_AIR  = 2.6E-5_EB  ! Water Vapor - Air binary diffusion (m2/s at 25 C, Incropera & DeWitt, Table A.8) 
+!SC_AIR = 0.6_EB     ! NU_AIR/D_AIR (Incropera & DeWitt, Chap 7, External Flow)
+!PR_AIR = 0.7_EB     
+
+! Working arrays
+!IF(N_TREES_OUT > 0) TREE_OUTPUT_DATA(:,:,NM) = 0._EB !for output of veg data
+!DMPVDT_FM_VEG  = 0.0_EB
+
+!Clear arrays and scalars
+!HOLD1 => WORK4 ; WORK4 = 0._EB
+!HOLD2 => WORK5 ; WORK5 = 0._EB
+!HOLD3 => WORK6 ; WORK6 = 0._EB
+!HOLD4 => WORK7 ; WORK7 = 0._EB
+TOTAL_BULKDENS_MOIST    = 0.0_EB
+TOTAL_BULKDENS_DRY_FUEL = 0.0_EB
+TOTAL_MASS_MOIST    = 0.0_EB
+TOTAL_MASS_DRY_FUEL = 0.0_EB
+V_VEG               = 0.0_EB
+
+!print*,'vege h-m transfer: NM, NLP',nm,nlp
+
+PARTICLE_LOOP: DO I=1,NLP
+
+ LP  => LAGRANGIAN_PARTICLE(I)
+ IPC =  LP%CLASS_INDEX
+ LPC => LAGRANGIAN_PARTICLE_CLASS(IPC)
+ IF (.NOT. LPC%VEG_WFDS_FE) CYCLE PARTICLE_LOOP !Ensure WFDS FE vegetation model is to be used
+!IF (LPC%MASSLESS) CYCLE PARTICLE_LOOP   !Skip PARTICLE if massless
+
+ THERMAL_CALC: IF (.NOT. LPC%VEG_STEM) THEN   !compute heat transfer, etc if thermally thin
+
+! Intialize quantities
+ LP%VEG_MLR      = 0.0_EB
+ LP%VEG_Q_CHAROX = 0.0_EB
+ Q_VEG_CHAR      = 0.0_EB
+ Q_VEG_MOIST     = 0.0_EB
+ Q_VEG_VOLIT     = 0.0_EB
+ Q_UPTO_VOLIT    = 0.0_EB
+ Q_VOLIT         = 0.0_EB
+ MPV_MOIST_LOSS  = 0.0_EB
+ MPV_CHAR_LOSS   = 0.0_EB
+ MPV_CHAR_CO2    = 0.0_EB
+ MPV_CHAR_O2     = 0.0_EB
+ MPV_VOLIT       = 0.0_EB
+ MPV_ADDED       = 0.0_EB
+ MW_VEG_MOIST_TERM = 0.0_EB
+ MW_VEG_VOLIT_TERM = 0.0_EB
+ CP_VEG_FUEL_AND_CHAR_MASS = 0.0_EB
+ CP_MASS_VEG_SOLID         = 0.0_EB
+ VEG_DEGRADATION_LINEAR    = .FALSE.
+ VEG_DEGRADATION_ARRHENIUS = .FALSE.
+ MPV_CHAR_CO2_TOTAL   = 0.0_EB
+ MPV_CHAR_O2_TOTAL   = 0.0_EB 
+ MPV_CHAR_LOSS_TOTAL  = 0.0_EB 
+ MPV_MOIST_LOSS_TOTAL = 0.0_EB 
+ MPV_VOLIT_TOTAL  = 0.0_EB 
+ Q_VEG_CHAR_TOTAL = 0.0_EB
+
+! Vegetation variables
+!VEG_VF             = LP%VEG_VOLFRACTION !volume fraction of vegetation in cell
+ VEG_VF             = 1._EB !volume fraction of vegetation in cell
+ NU_CHAR_VEG        = LPC%VEG_CHAR_FRACTION
+ NU_ASH_VEG         = LPC%VEG_ASH_FRACTION/LPC%VEG_CHAR_FRACTION !fraction of char that can become ash
+ CHAR_FCTR          = 1._EB - LPC%VEG_CHAR_FRACTION !factor used to determine volatile mass
+ CHAR_FCTR2         = 1._EB/CHAR_FCTR !factor used to determine char mass
+ SV_VEG             = LPC%VEG_SV !surface-to-volume ration 1/m
+ TMP_VEG            = LP%VEG_TMP
+ MPV_VEG            = LP%VEG_FUEL_MASS !bulk density of dry veg kg/m^3
+ MPV_CHAR           = LP%VEG_CHAR_MASS !bulk density of char
+ MPV_ASH            = LP%VEG_ASH_MASS  !bulk density of ash 
+ MPV_MOIST          = LP%VEG_MOIST_MASS !bulk density of moisture in veg
+ MPV_VEG_MIN        = VEG_VF*LPC%VEG_FUEL_MPV_MIN + (1._EB - VEG_VF)*LPC%VEG_BULK_DENSITY
+ MPV_CHAR_MIN       = MPV_VEG_MIN*LPC%VEG_CHAR_FRACTION
+ MPV_MOIST_MIN      = VEG_VF*LPC%VEG_MOIST_MPV_MIN + (1._EB - VEG_VF)*LPC%VEG_BULK_DENSITY*LPC%VEG_MOISTURE
+ MPV_ASH_MAX        = LPC%VEG_ASH_MPV_MAX   !maxium ash bulk density
+ MPV_MOIST_LOSS_MAX = LPC%VEG_DEHYDRATION_RATE_MAX*DT
+ MPV_VOLIT_MAX      = LPC%VEG_BURNING_RATE_MAX*DT
+ MPV_CHAR_LOSS_MAX  = LPC%VEG_CHAROX_RATE_MAX*DT
+ ORIG_PACKING_RATIO = LPC%VEG_BULK_DENSITY/LPC%VEG_DENSITY 
+ H_VAP_H2O          = LPC%VEG_H_H2O !J/kg/K heat of vaporization of water
+ A_H2O_VEG          = LPC%VEG_A_H2O !1/s sqrt(K)
+ E_H2O_VEG          = LPC%VEG_E_H2O !K
+ H_PYR_VEG          = LPC%VEG_H_PYR !J/kg 
+ A_PYR_VEG          = LPC%VEG_A_PYR !1/s
+ E_PYR_VEG          = LPC%VEG_E_PYR !K
+ H_CHAR_VEG         = LPC%VEG_H_CHAR ! J/kg
+ A_CHAR_VEG         = LPC%VEG_A_CHAR !m/s 
+ E_CHAR_VEG         = LPC%VEG_E_CHAR !K
+ BETA_CHAR_VEG      = LPC%VEG_BETA_CHAR
+ NU_O2_CHAR_VEG     = LPC%VEG_NU_O2_CHAR
+
+! Thermal degradation approach parameters
+ IF(LPC%VEG_DEGRADATION == 'LINEAR') VEG_DEGRADATION_LINEAR = .TRUE.
+ IF(LPC%VEG_DEGRADATION == 'ARRHENIUS') VEG_DEGRADATION_ARRHENIUS = .TRUE.
+
+ R_H_PYR_VEG    = 1._EB/H_PYR_VEG
+
+!Bound on volumetric mass flux
+ VEG_CRITICAL_MASSSOURCE = VEG_CRITICAL_MASSFLUX*SV_VEG*LP%VEG_PACKING_RATIO
+
+! Determine grid cell quantities of the vegetation fuel element
+ CALL GET_IJK(LP%X,LP%Y,LP%Z,NM,XI,YJ,ZK,II,JJ,KK)
+ IIX = FLOOR(XI+0.5_EB)
+ JJY = FLOOR(YJ+0.5_EB)
+ KKZ = FLOOR(ZK+0.5_EB)
+ V_CELL = DX(II)*DY(JJ)*DZ(KK)
+
+! Gas velocities in vegetation grid cell
+ UBAR = AFILL2(UU,II-1,JJY,KKZ,XI-II+1,YJ-JJY+.5_EB,ZK-KKZ+.5_EB)
+ VBAR = AFILL2(VV,IIX,JJ-1,KKZ,XI-IIX+.5_EB,YJ-JJ+1,ZK-KKZ+.5_EB)
+ WBAR = AFILL2(WW,IIX,JJY,KK-1,XI-IIX+.5_EB,YJ-JJY+.5_EB,ZK-KK+1)
+ UREL = LP%U - UBAR
+ VREL = LP%V - VBAR
+ WREL = LP%W - WBAR
+ QREL = MAX(1.E-6_EB,SQRT(UREL*UREL + VREL*VREL + WREL*WREL))
+
+
+! Gas thermophysical quantities
+ RHO_GAS  = RHO(II,JJ,KK)
+ TMP_GAS  = TMP(II,JJ,KK)
+ TMP_FILM = 0.5_EB*(TMP_GAS + TMP_VEG)
+!print '(A,6ES12.3)','vege:tmp_veg,mpv_veg,mpv_char,mpv_ash,mpv_moist,tmp_gas',tmp_veg,mpv_veg,mpv_char,mpv_ash,mpv_moist,tmp_gas
+
+! Assuming gas is air
+!RHO_AIR  = 101325./(287.05*TMP_FILM) !rho_air = standard pressure / (ideal gas constant*gas temp)
+!MU_AIR   =  (0.000001458_EB*TMP_FILM**1.5_EB)/(TMP_FILM+110.4_EB) !kg/m/s
+!K_AIR    = (0.002495_EB*TMP_FILM**1.5_EB)/(TMP_FILM+194._EB) !W/m.K
+
+!Use full gas composition
+ ZZ_GET(1:N_TRACKED_SPECIES) = ZZ(II,JJ,KK,1:N_TRACKED_SPECIES)
+ CALL GET_VISCOSITY(ZZ_GET,MU_GAS,TMP_FILM) 
+ CALL GET_CONDUCTIVITY(ZZ_GET,K_GAS,TMP_FILM) !W/m/K
+ CALL GET_SPECIFIC_HEAT(ZZ_GET,CP_GAS,TMP_FILM)
+
+! Veg thermophysical properties
+ TMP_GMV  = TMP_GAS - TMP_VEG
+ CP_VEG   = (0.01_EB + 0.0037_EB*TMP_VEG)*1000._EB !J/kg/K Ritchie IAFSS 1997:177-188
+ CP_CHAR  = 420._EB + 2.09_EB*TMP_VEG + 6.85E-4_EB*TMP_VEG**2 !J/kg/K Park etal. C&F 2010 147:481-494
+ CP_ASH   = 1244._EB*(TMP_VEG/TMPA)**0.315 !J/kg/K Lautenberger & Fernandez-Pell, C&F 2009 156:1503-1513
+ R_VEG_CYL_DIAM = 0.25_EB*SV_VEG
+
+! Convective heat flux on thermal elements
+
+ IF_QCONV: IF (.NOT. LPC%VEG_HCONV_CYLLAM) THEN
+
+   RE_D     = RHO_GAS*QREL*4._EB/(SV_VEG*MU_GAS)
+
+! - Forced convection heat transfer coefficients on veg particles
+!
+! Hilpert Correlation (Incropera & DeWitt Fourth Edition, p. 370) for cylinder in crossflow,
+! forced convection
+   IF(RE_D < 4._EB) THEN
+     CN = 0.989_EB
+     CM = 0.330_EB
+   ELSE IF (RE_D >= 4._EB .AND. RE_D < 40._EB) THEN
+     CN = 0.911_EB
+     CM = 0.385_EB
+   ELSE
+     CN = 0.683_EB
+     CM = 0.466_EB
+   ENDIF
+   NUSS_HILPERT_CYL_FORCEDCONV = CN*(RE_D**CM)*PR_ONTH !Nusselt number
+!print '(A,2x,2ES12.4)','nuss Hilpert,Re', NUSS_HILPERT_CYL_FORCEDCONV,re_d
+   HCON_VEG_FORCED = 0.25_EB*SV_VEG*K_GAS*NUSS_HILPERT_CYL_FORCEDCONV !W/m^2 from Hilpert (cylinder)
+
+! - Free convection heat transfer coefficients
+   LENGTH_SCALE = 4._EB/SV_VEG !horizontal cylinder diameter
+   RAYLEIGH_NUM = 9.8_EB*ABS(TMP_GMV)*LENGTH_SCALE**3*RHO_GAS**2*CP_GAS/(TMP_FILM*MU_GAS*K_GAS)
+!print*,'ZZ_GET',ZZ_GET(:)
+
+! Morgan correlation (Incropera & DeWitt, 4th Edition, p. 501-502) for horizontal cylinder of diameter
+! 4/SV_VEG, free convection
+   IF (RAYLEIGH_NUM < 0.01_EB) THEN
+     CN = 0.675_EB
+     CM = 0.058_EB
+   ELSE IF (RAYLEIGH_NUM >= 0.01_EB .AND. RAYLEIGH_NUM < 100._EB) THEN
+     CN = 1.02_EB
+     CM = 0.148_EB
+   ELSE IF (RAYLEIGH_NUM >= 100._EB .AND. RAYLEIGH_NUM < 10**4._EB) THEN
+     CN = 0.85_EB
+     CM = 0.188_EB
+   ELSE IF (RAYLEIGH_NUM >= 10**4._EB .AND. RAYLEIGH_NUM < 10**7._EB) THEN
+     CN = 0.48_EB
+     CM = 0.25_EB
+   ELSE IF (RAYLEIGH_NUM >= 10**7._EB .AND. RAYLEIGH_NUM < 10**12._EB) THEN
+     CN = 0.125_EB
+     CM = 0.333_EB
+   ENDIF
+   NUSS_MORGAN_CYL_FREECONV = CN*RAYLEIGH_NUM**CM
+   HCON_VEG_FREE = 0.25_EB*SV_VEG*K_GAS*NUSS_MORGAN_CYL_FREECONV !W/m^2
+
+   QCON_VEG = MAX(HCON_VEG_FORCED,HCON_VEG_FREE)*TMP_GMV !W/m^2
+
+ ELSE  !Laminar flow, cyl of diameter 4/sv_veg
+
+  HC_VERT_CYL = 1.42_EB*(ABS(TMP_GMV)*R_VEG_CYL_DIAM)**0.25_EB !Holman vertical cylinder
+  HC_HORI_CYL = 1.32_EB*(ABS(TMP_GMV)*R_VEG_CYL_DIAM)**0.25_EB !Holman horizontal cylinder
+  QCON_VEG    = TMP_GMV*0.5_EB*(HC_VERT_CYL+HC_HORI_CYL) !average of vertical and horizontal cylinder 
+
+ ENDIF IF_QCONV
+
+ 
+! IF (TMP_VEG >= TMP_GAS )QCON_VEG = SV_VEG*(0.5_EB*K_AIR*0.683_EB*RE_D**0.466_EB)*0.5_EB*TMP_GMV !W/m^2 from Porterie
+! IF (TMP_VEG <  TMP_GAS ) QCON_VEG = TMP_GMV*1.42_EB*(ABS(TMP_GMV)/DZ(KK))**0.25_EB !Holman
+!RE_D     = RHO_GAS*QREL*2._EB/(SV_VEG*MU_GAS)
+!QCON_VEG = SV_VEG*(0.5_EB*K_GAS*0.683_EB*RE_D**0.466_EB)*0.5_EB*TMP_GMV !W/m^2 from Porterie (cylinder)
+! QCON_VEG = TMP_GMV*1.42_EB*(ABS(TMP_GMV)/DZ(KK))**0.25_EB !Holman vertical cylinders of length dz, Laminar flow
+! QCON_VEG = TMP_GMV*1.32_EB*(ABS(TMP_GMV)*SV_VEG*0.25_EB)**0.25_EB !Holman horizontal cylinders of diameter 4/sv_veg, Laminar flow
+
+ QCON_VEG = SV_VEG*LP%VEG_PACKING_RATIO*QCON_VEG !W/m^3
+ LP%VEG_DIVQC = QCON_VEG
+ QRAD_VEG     = LP%VEG_DIVQR
+!Print '(A,1x,5E13.5)','vege:tmp_veg,tmp_gas,tmp_gmv,qcon*dV,qrad*dV',tmp_veg-273,tmp_gas-273,tmp_gmv, &
+!                                                                    qcon_veg*0.000000001_EB,qrad_veg*0.000000001_EB
+! Divergence of net heat flux
+ QNET_VEG = QCON_VEG + QRAD_VEG !W/m^3
+
+! Update temperature of vegetation
+!CP_VEG_FUEL_AND_CHAR_MASS = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR
+!DTMP_VEG    = DT*QNET_VEG/(CP_VEG_FUEL_AND_CHAR_MASS + CP_H2O*MPV_MOIST)
+ CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
+!print '(A,4ES12.3)','mpv_veg,mpv_char,mpv_ash,mpv_moist', mpv_veg,mpv_char,mpv_ash,mpv_moist
+!print '(A,5ES12.3)','vege:dt,tmpveg,qnet_veg,cp_mass_veg_solid,cph20,mpv_moist',tmp_veg,qnet_veg,cp_mass_veg_solid,cp_h2o,mpv_moist
+ DTMP_VEG    = DT*QNET_VEG/(CP_MASS_VEG_SOLID + CP_H2O*MPV_MOIST)
+ TMP_VEG_NEW = TMP_VEG + DTMP_VEG
+ IF (TMP_VEG_NEW < TMPA) TMP_VEG_NEW = TMP_GAS
+!print*,'---------------------------------------------------------'
+!print 1113,ii,jj,kk,idt
+!1113 format(2x,4(I3))
+!print 1112,tmp_veg_new,tmp_veg,qnet_veg,cp_mass_veg_solid,cp_h2o,dtmp_veg
+!1112 format(2x,6(e15.5))
+
+! Set temperature of inert ignitor elements
+!IF(LP%IGNITOR) THEN
+! TMP_IGNITOR = LPC%VEG_INITIAL_TEMPERATURE
+! TMP_VEG_NEW = TMP_GAS
+! IF(T>=LP%VEG_IGN_TON .AND. T<=LP%VEG_IGN_TON+LP%VEG_IGN_TRAMPON) THEN
+!   TMP_VEG_NEW = &
+!     TMPA + (TMP_IGNITOR-TMPA)*(T-LP%VEG_IGN_TON)/LP%VEG_IGN_TRAMPON
+! ENDIF  
+! IF(T>LP%VEG_IGN_TON+LP%VEG_IGN_TRAMPON) TMP_VEG_NEW = TMP_IGNITOR
+! IF(T>=LP%VEG_IGN_TOFF .AND. T<=LP%VEG_IGN_TOFF+LP%VEG_IGN_TRAMPOFF)THEN 
+!   TMP_VEG_NEW = &
+!     TMP_IGNITOR - (TMP_IGNITOR-TMP_GAS)*(T-LP%VEG_IGN_TOFF)/LP%VEG_IGN_TRAMPOFF
+! ENDIF
+! IF(T > LP%VEG_IGN_TOFF+LP%VEG_IGN_TRAMPOFF) THEN
+!  LP%R = 0.0001_EB*LPC%KILL_RADIUS !remove ignitor element
+!  TMP_VEG_NEW = TMP_GAS
+! ENDIF
+!ENDIF
+
+!      ************** Fuel Element Linear Pyrolysis Degradation model *************************
+! Drying occurs if qnet > 0 with Tveg held at 100 c
+! Pyrolysis occurs if qnet > 0 according to Morvan & Dupuy empirical formula. Linear
+! temperature dependence with qnet factor. 
+! Char oxidation occurs if qnet > 0 (user must request char ox) after pyrolysis is completed.
+!
+ IF_VEG_DEGRADATION_LINEAR: IF(VEG_DEGRADATION_LINEAR) THEN
+!  IF_NET_HEAT_INFLUX: IF (QNET_VEG > 0.0_EB .AND. .NOT. LP%IGNITOR) THEN !dehydrate or pyrolyze 
+   IF_NET_HEAT_INFLUX: IF (QNET_VEG > 0.0_EB) THEN !dehydrate or pyrolyze 
+
+! Drying of fuel element vegetation 
+     IF_DEHYDRATION: IF (MPV_MOIST > MPV_MOIST_MIN .AND. TMP_VEG_NEW > TMP_H2O_BOIL) THEN
+       Q_FOR_DRYING   = (TMP_VEG_NEW - TMP_H2O_BOIL)/DTMP_VEG * QNET_VEG
+       MPV_MOIST_LOSS = MIN(DT*Q_FOR_DRYING/H_VAP_H2O,MPV_MOIST-MPV_MOIST_MIN)
+       MPV_MOIST_LOSS = MIN(MPV_MOIST_LOSS,MPV_MOIST_LOSS_MAX) !use specified max
+       TMP_VEG_NEW       = TMP_H2O_BOIL
+       LP%VEG_MOIST_MASS = MPV_MOIST - MPV_MOIST_LOSS !kg/m^3
+       IF (LP%VEG_MOIST_MASS <= MPV_MOIST_MIN) LP%VEG_MOIST_MASS = 0.0_EB
+       Q_VEG_MOIST       = MPV_MOIST_LOSS*CP_H2O*(TMP_VEG_NEW - TMPA)
+       MW_VEG_MOIST_TERM = MPV_MOIST_LOSS/MW_H2O
+!      IF (I == 1) print*,MPV_MOIST,MPV_MOIST_LOSS
+!Print '(A,1x,3ES13.3)','vege:tmp_veg_new,mpv_moist_loss,mass h2o',tmp_veg_new-273,mpv_moist_loss,lp%veg_moist_mass
+     ENDIF IF_DEHYDRATION
+
+! Volitalization of fuel element vegetation
+     IF_VOLITALIZATION: IF(MPV_MOIST <= MPV_MOIST_MIN) THEN
+
+       IF_MD_VOLIT: IF(MPV_VEG > MPV_VEG_MIN .AND. TMP_VEG_NEW >= 400._EB) THEN !Morvan & Dupuy volitalization
+         Q_UPTO_VOLIT = CP_MASS_VEG_SOLID*MAX((400._EB-TMP_VEG),0._EB)
+         Q_FOR_VOLIT  = DT*QNET_VEG - Q_UPTO_VOLIT
+         Q_VOLIT      = Q_FOR_VOLIT*0.01_EB*(MIN(500._EB,TMP_VEG)-400._EB)
+
+!        MPV_VOLIT    = Q_VOLIT*R_H_PYR_VEG
+         MPV_VOLIT    = CHAR_FCTR*Q_VOLIT*R_H_PYR_VEG
+         MPV_VOLIT    = MAX(MPV_VOLIT,0._EB)
+         MPV_VOLIT    = MIN(MPV_VOLIT,MPV_VOLIT_MAX) !user specified max
+
+         DMPV_VEG     = CHAR_FCTR2*MPV_VOLIT
+         DMPV_VEG     = MIN(DMPV_VEG,(MPV_VEG - MPV_VEG_MIN))
+         MPV_VEG      = MPV_VEG - DMPV_VEG
+!Print '(A,1x,1ES13.3)','vege: dmpv_veg',dmpv_veg
+
+         MPV_VOLIT    = CHAR_FCTR*DMPV_VEG
+!        MPV_CHAR     = MPV_CHAR + NU_CHAR_VEG*MPV_VOLIT !kg/m^3
+!        MPV_CHAR     = MPV_CHAR + LPC%VEG_CHAR_FRACTION*MPV_VOLIT !kg/m^3
+         MPV_CHAR     = MPV_CHAR + LPC%VEG_CHAR_FRACTION*DMPV_VEG !kg/m^3
+         Q_VOLIT      = MPV_VOLIT*H_PYR_VEG
+         CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR 
+         TMP_VEG_NEW  = TMP_VEG + (Q_FOR_VOLIT-Q_VOLIT)/CP_MASS_VEG_SOLID
+         TMP_VEG_NEW  = MIN(TMP_VEG_NEW,500._EB) !set to high pyrol temp if too hot
+
+!Handle veg. fuel elements if element mass <= prescribed minimum
+         IF (MPV_VEG <= MPV_VEG_MIN) THEN
+           MPV_VEG = 0.0_EB
+           IF(LPC%VEG_REMOVE_CHARRED .AND. .NOT. LPC%VEG_CHAR_OXIDATION) LP%ONE_D%BURNAWAY = .TRUE.
+!           LP%R = 0.0001_EB*LPC%KILL_RADIUS !fuel element will be removed
+         ENDIF
+!Enthalpy of fuel element volatiles using Cp,volatiles(T) from Ritchie
+         H_SENS_VEG_VOLIT = 0.0445_EB*(TMP_VEG**1.5_EB - TMP_GAS**1.5_EB) - 0.136_EB*(TMP_VEG - TMP_GAS)
+         H_SENS_VEG_VOLIT = H_SENS_VEG_VOLIT*1000._EB !J/kg
+         Q_VEG_VOLIT      = CHAR_FCTR*MPV_VOLIT*H_SENS_VEG_VOLIT !J/m^3
+         MW_VEG_VOLIT_TERM= MPV_VOLIT/SPECIES(FUEL_INDEX)%MW
+        ENDIF IF_MD_VOLIT
+
+      LP%VEG_FUEL_MASS = MPV_VEG
+      LP%VEG_CHAR_MASS = MPV_CHAR !kg/m^3
+
+    ENDIF IF_VOLITALIZATION
+
+   ENDIF IF_NET_HEAT_INFLUX
+
+!Char oxidation of fuel element with the Linear pyrolysis model from Morvan and Dupuy, Comb.
+!Flame, 138:199-210 (2004)
+!(note that this can be handled only approximately with the conserved
+!scalar based gas-phase combustion model - the oxygen is consumed by
+!the char oxidation reaction is not accounted for since it would be inconsistent with the state
+!relation for oxygen that is based on the conserved scalar approach used for gas phase
+!combustion)
+   IF_CHAR_OXIDATION_LIN: IF (LPC%VEG_CHAR_OXIDATION .AND. MPV_MOIST <= MPV_MOIST_MIN) THEN
+
+     ZZ_GET(1:N_TRACKED_SPECIES) = ZZ(II,JJ,KK,1:N_TRACKED_SPECIES)
+     CALL GET_MASS_FRACTION(ZZ_GET,O2_INDEX,Y_O2)
+     MPV_CHAR_LOSS = DT*RHO_GAS*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*LP%VEG_PACKING_RATIO*  &
+                      EXP(-E_CHAR_VEG/TMP_VEG)*(1+BETA_CHAR_VEG*SQRT(RE_D))
+     MPV_CHAR_LOSS = MIN(MPV_CHAR_LOSS,MPV_CHAR_LOSS_MAX) !user bound
+     MPV_CHAR      = MAX(MPV_CHAR - MPV_CHAR_LOSS,0.0_EB)
+     MPV_CHAR_LOSS = LP%VEG_CHAR_MASS - MPV_CHAR
+     MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
+     LP%VEG_CHAR_MASS  = MPV_CHAR !kg/m^3
+     CP_MASS_VEG_SOLID = MPV_VEG*CP_VEG + MPV_CHAR*CP_CHAR + MPV_ASH*CP_ASH
+
+! Reduce fuel element size based on char consumption
+!!    IF (MPV_VEG <= MPV_VEG_MIN) THEN !charring reduce veg elem size
+!      LP%VEG_PACKING_RATIO = LP%VEG_PACKING_RATIO - MPV_CHAR_LOSS/(LPC%VEG_DENSITY*LPC%VEG_CHAR_FRACTION)
+!      LP%VEG_SV     = LPC%VEG_SV*(ORIG_PACKING_RATIO/LP%VEG_PACKING_RATIO)**0.333_EB 
+!      LP%VEG_KAPPA  = 0.25_EB*LP%VEG_SV*LP%VEG_PACKING_RATIO
+!!    ENDIF
+
+!remove fuel element if char ox is complete
+      IF (MPV_CHAR <= MPV_CHAR_MIN .AND. MPV_VEG <= MPV_VEG_MIN) THEN 
+        CP_MASS_VEG_SOLID = MPV_ASH*CP_ASH
+        LP%VEG_CHAR_MASS = 0.0_EB
+!       IF(LPC%VEG_REMOVE_CHARRED) LP%R = 0.0001_EB*LPC%KILL_RADIUS
+        IF(LPC%VEG_REMOVE_CHARRED) LP%ONE_D%BURNAWAY = .TRUE.
+      ENDIF
+
+      Q_VEG_CHAR       = MPV_CHAR_LOSS*H_CHAR_VEG 
+      LP%VEG_Q_CHAROX  = -Q_VEG_CHAR*RDT
+      Q_VEG_CHAR_TOTAL = Q_VEG_CHAR_TOTAL + Q_VEG_CHAR
+      TMP_VEG_NEW  = TMP_VEG_NEW - LPC%VEG_CHAR_ENTHALPY_FRACTION*Q_VEG_CHAR/CP_MASS_VEG_SOLID
+      TMP_VEG_NEW  = MIN(TMP_CHAR_MAX,TMP_VEG_NEW)
+!     print*,'vege: q_veg_char,temp_veg_new,',q_veg_char,tmp_veg_new
+!          print*,'------------------'
+!    ENDIF IF_CHAR_OXIDATION_LIN_2
+
+   ENDIF IF_CHAR_OXIDATION_LIN
+  
+ ENDIF IF_VEG_DEGRADATION_LINEAR
+
+!      ************** Fuel Element Arrehnius Degradation model *************************
+! Drying and pyrolysis of fuel element occur according to Arrehnius expressions obtained 
+! from the literature (Porterie et al., Num. Heat Transfer, 47:571-591, 2005
+! Predicting wildland fire behavior and emissions using a fine-scale physical
+! model
+!
+ IF_VEG_DEGRADATION_ARRHENIUS: IF(VEG_DEGRADATION_ARRHENIUS) THEN
+
+!  TMP_VEG = TMPA + 5._EB/60._EB*T ; TMP_VEG_NEW = TMP_VEG !mimic TGA with 5 C/min heating rate
+
+!  IF_NOT_IGNITOR1: IF (.NOT. LP%IGNITOR) THEN !dehydrate or pyrolyze 
+
+! Drying of fuel element vegetation 
+     IF_DEHYDRATION_2: IF (MPV_MOIST > MPV_MOIST_MIN) THEN
+       MPV_MOIST_LOSS = MIN(DT*MPV_MOIST*A_H2O_VEG*EXP(-E_H2O_VEG/TMP_VEG)/SQRT(TMP_VEG), &
+                            MPV_MOIST-MPV_MOIST_MIN)
+       MPV_MOIST_LOSS = MIN(MPV_MOIST_LOSS,MPV_MOIST_LOSS_MAX) !use specified max
+       MPV_MOIST      = MPV_MOIST - MPV_MOIST_LOSS
+       LP%VEG_MOIST_MASS = MPV_MOIST !kg/m^3
+       IF (MPV_MOIST <= MPV_MOIST_MIN) LP%VEG_MOIST_MASS = 0.0_EB
+       MW_VEG_MOIST_TERM = MPV_MOIST_LOSS/MW_H2O
+       Q_VEG_MOIST  = MPV_MOIST_LOSS*CP_H2O*(TMP_VEG - TMPA)
+!      IF (I == 1) print*,MPV_MOIST,MPV_MOIST_LOSS
+     ENDIF IF_DEHYDRATION_2
+
+! Volitalization of fuel element vegetation
+     IF_VOLITALIZATION_2: IF(MPV_VEG > MPV_VEG_MIN) THEN
+       MPV_VOLIT    = DT*CHAR_FCTR*MPV_VEG*A_PYR_VEG*EXP(-E_PYR_VEG/TMP_VEG)
+       MPV_VOLIT    = MIN(MPV_VOLIT,MPV_VOLIT_MAX) !user specified max
+
+       DMPV_VEG     = CHAR_FCTR2*MPV_VOLIT
+       DMPV_VEG     = MIN(DMPV_VEG,(MPV_VEG - MPV_VEG_MIN))
+       MPV_VEG      = MPV_VEG - DMPV_VEG
+
+       MPV_VOLIT    = CHAR_FCTR*DMPV_VEG 
+       MPV_CHAR     = MPV_CHAR + LPC%VEG_CHAR_FRACTION*DMPV_VEG !kg/m^3
+!      MPV_CHAR     = MPV_CHAR + LPC%VEG_CHAR_FRACTION*MPV_VOLIT !kg/m^3
+       CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
+
+!Handle veg. fuel elements if original element mass <= prescribed minimum
+       IF (MPV_VEG <= MPV_VEG_MIN) THEN
+!        MPV_VEG = MPV_VEG_MIN
+         MPV_VEG = 0.0_EB
+         CP_MASS_VEG_SOLID = CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
+!        IF(LPC%VEG_REMOVE_CHARRED .AND. .NOT. LPC%VEG_CHAR_OXIDATION) LP%R = 0.0001_EB*LPC%KILL_RADIUS !remove part
+         IF(LPC%VEG_REMOVE_CHARRED .AND. .NOT. LPC%VEG_CHAR_OXIDATION) LP%ONE_D%BURNAWAY = .TRUE. !remove part
+       ENDIF
+!Enthalpy of fuel element volatiles using Cp,volatiles(T) from Ritchie
+       H_SENS_VEG_VOLIT = 0.0445_EB*(TMP_VEG**1.5_EB - TMP_GAS**1.5_EB) - 0.136_EB*(TMP_VEG - TMP_GAS)
+       H_SENS_VEG_VOLIT = H_SENS_VEG_VOLIT*1000._EB !J/kg
+       Q_VEG_VOLIT      = MPV_VOLIT*H_SENS_VEG_VOLIT !J
+       MW_VEG_VOLIT_TERM= MPV_VOLIT/SPECIES(FUEL_INDEX)%MW
+     ENDIF IF_VOLITALIZATION_2
+
+     LP%VEG_FUEL_MASS = MPV_VEG
+     LP%VEG_CHAR_MASS = MPV_CHAR
+
+!Char oxidation of fuel element within the Arrhenius pyrolysis model
+!(note that this can be handled only approximately with the conserved
+!scalar based gas-phase combustion model - no gas phase oxygen is consumed by
+!the char oxidation reaction since it would be inconsistent with the state
+!relation for oxygen based on the conserved scalar approach for gas phase
+!combustion)
+     IF_CHAR_OXIDATION: IF (LPC%VEG_CHAR_OXIDATION) THEN
+       ZZ_GET(1:N_TRACKED_SPECIES) = ZZ(II,JJ,KK,1:N_TRACKED_SPECIES)
+       CALL GET_MASS_FRACTION(ZZ_GET,O2_INDEX,Y_O2)
+       MPV_CHAR_LOSS = DT*RHO_GAS*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*LP%VEG_PACKING_RATIO*  &
+                        EXP(-E_CHAR_VEG/TMP_VEG)*(1._EB+BETA_CHAR_VEG*SQRT(RE_D))
+       MPV_CHAR_LOSS = MIN(MPV_CHAR_LOSS,MPV_CHAR_LOSS_MAX) !user bound
+       MPV_CHAR_LOSS = MIN(MPV_CHAR,MPV_CHAR_LOSS)
+       MPV_CHAR      = MPV_CHAR - MPV_CHAR_LOSS
+       MPV_ASH       = MPV_ASH + NU_ASH_VEG*MPV_CHAR_LOSS
+       MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
+       MPV_CHAR_O2   = NU_O2_CHAR_VEG*MPV_CHAR_LOSS
+       CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
+       LP%VEG_CHAR_MASS = MPV_CHAR !kg/m^3
+       LP%VEG_ASH_MASS  = MPV_ASH
+
+! Reduce veg element size based on char consumption
+!      LP%VEG_PACKING_RATIO = LP%VEG_PACKING_RATIO - MPV_CHAR_LOSS/(LPC%VEG_DENSITY*LPC%VEG_CHAR_FRACTION)
+!      LP%VEG_SV     = LPC%VEG_SV*(ORIG_PACKING_RATIO/LP%VEG_PACKING_RATIO)**0.333_EB 
+!      LP%VEG_KAPPA  = 0.25_EB*LP%VEG_SV*LP%VEG_PACKING_RATIO
+
+! Remove partical if char is fully consumed
+       IF (MPV_CHAR <= MPV_CHAR_MIN .AND. MPV_VEG <= MPV_VEG_MIN) THEN 
+!        IF (MPV_ASH >= MPV_ASH_MAX .AND. MPV_VEG <= MPV_VEG_MIN) THEN 
+!        CP_MASS_VEG_SOLID = CP_CHAR*MPV_CHAR_MIN
+         CP_MASS_VEG_SOLID = CP_ASH*MPV_ASH
+         LP%VEG_CHAR_MASS = 0.0_EB
+!        IF(LPC%VEG_REMOVE_CHARRED) LP%R = 0.0001_EB*LPC%KILL_RADIUS !fuel element will be removed
+         IF(LPC%VEG_REMOVE_CHARRED) LP%ONE_D%BURNAWAY = .TRUE. !fuel element will be removed
+       ENDIF
+!  ENDIF IF_CHAR_OXIDATION_2
+
+     ENDIF IF_CHAR_OXIDATION
+
+     Q_VEG_CHAR        = MPV_CHAR_LOSS*H_CHAR_VEG 
+     LP%VEG_Q_CHAROX   = -Q_VEG_CHAR*RDT
+     Q_VEG_CHAR_TOTAL  =  Q_VEG_CHAR_TOTAL + Q_VEG_CHAR
+     TMP_VEG_NEW  = TMP_VEG_NEW - (MPV_MOIST_LOSS*H_VAP_H2O + MPV_VOLIT*H_PYR_VEG + & 
+                                  LPC%VEG_CHAR_ENTHALPY_FRACTION*Q_VEG_CHAR) / &
+                                 (LP%VEG_MOIST_MASS*CP_H2O + CP_MASS_VEG_SOLID)
+     TMP_VEG_NEW  = MIN(TMP_CHAR_MAX,TMP_VEG_NEW)
+!print 1111,tmp_veg_new,mpv_moist,mpv_volit,q_veg_char,mpv_char_loss
+!1111 format(2x,5(e15.5))
+!    IF (MPV_VEG <= MPV_VEG_MIN) MPV_VOLIT = 0.0_EB
+
+!  ENDIF IF_NOT_IGNITOR1
+ ENDIF IF_VEG_DEGRADATION_ARRHENIUS
+
+ LP%ONE_D%TMP_F = TMP_VEG_NEW
+ LP%VEG_TMP     = TMP_VEG_NEW
+
+ LP%VEG_EMISS = 4.*SIGMA*LP%VEG_KAPPA*TMP_VEG_NEW**4 !used in RTE solver
+
+ MPV_CHAR_LOSS_TOTAL  = MPV_CHAR_LOSS_TOTAL  + MPV_CHAR_LOSS !needed for subcycling
+ MPV_MOIST_LOSS_TOTAL = MPV_MOIST_LOSS_TOTAL + MPV_MOIST_LOSS !needed for subcycling
+ MPV_VOLIT_TOTAL      = MPV_VOLIT_TOTAL      + MPV_VOLIT !needed for subcycling
+ MPV_CHAR_CO2_TOTAL   = MPV_CHAR_CO2_TOTAL   + MPV_CHAR_CO2
+ MPV_CHAR_O2_TOTAL    = MPV_CHAR_O2_TOTAL    + MPV_CHAR_O2
+ MPV_ADDED = MPV_ADDED + MPV_MOIST_LOSS + MPV_VOLIT + MPV_CHAR_CO2 - MPV_CHAR_O2
+
+! Check if critical mass flux condition is met
+!IF (MPV_ADDED*RDT < VEG_CRITICAL_MASSSOURCE .AND. .NOT. LP%VEG_IGNITED) THEN
+! MPV_ADDED      = 0.0_EB
+! MW_AVERAGE     = 0.0_EB
+! MPV_MOIST_LOSS = 0.0_EB
+! MPV_VOLIT      = 0.0_EB
+! Q_VEG_MOIST    = 0.0_EB
+! Q_VEG_VOLIT    = 0.0_EB
+!ELSE
+! LP%VEG_IGNITED = .TRUE.
+!ENDIF
+
+! Add affects of fuel element thermal degradation of vegetation to velocity divergence
+
+ CALL GET_SPECIFIC_HEAT(ZZ_GET,CP_GAS,TMP_GAS)
+ RCP_GAS    = 1._EB/CP_GAS
+ !MW_TERM    = MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM
+ MW_AVERAGE = R0/RSUM(II,JJ,KK)/RHO_GAS*(MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM)
+ Q_ENTHALPY = Q_VEG_MOIST + Q_VEG_VOLIT - (1.0_EB - LPC%VEG_CHAR_ENTHALPY_FRACTION)*Q_VEG_CHAR
+
+ !D_LAGRANGIAN(II,JJ,KK) = D_LAGRANGIAN(II,JJ,KK)  +           & 
+ !                         (-QCON_VEG*RCP_GAS + Q_ENTHALPY*RCP_GAS)/(RHO_GAS*TMP_GAS) + &
+ !                         RDT*MW_AVERAGE 
+ D_SOURCE(II,JJ,KK) = D_SOURCE(II,JJ,KK)  + RDT*Q_ENTHALPY*RCP_GAS/(RHO_GAS*TMP_GAS) + RDT*MW_AVERAGE 
+
+
+ TMP_VEG   = TMP_VEG_NEW
+
+ IF (MPV_MOIST <= MPV_MOIST_MIN) THEN !for time sub cycling
+   MPV_MOIST = 0.0_EB
+   MW_VEG_MOIST_TERM = 0.0_EB
+  Q_VEG_MOIST = 0.0_EB
+ ENDIF
+ IF (MPV_VEG <= MPV_VEG_MIN) THEN
+   MPV_VOLIT = 0.0_EB
+   MPV_VEG   = 0.0_EB
+   MW_VEG_VOLIT_TERM = 0.0_EB
+   Q_VEG_VOLIT = 0.0_EB
+ ENDIF
+
+ D_SOURCE(II,JJ,KK) = D_SOURCE(II,JJ,KK) + (-QCON_VEG*RCP_GAS)/(RHO_GAS*TMP_GAS)
+
+
+! Add water vapor, fuel vapor, and CO2 mass to total density
+! MPV_ADDED     = MPV_MOIST_LOSS + MPV_VOLIT + MPV_CHAR_CO2
+  LP%VEG_MLR    = MPV_ADDED*RDT !kg/m^3/s used in FVX,FVY,FVZ along with drag in part.f90
+  RHO(II,JJ,KK) = RHO_GAS + MPV_ADDED
+  RRHO_GAS_NEW  = 1._EB/RHO(II,JJ,KK)
+! print*,'NM =',NM
+! print*,'** ',rho(ii,jj,kk)
+
+! Add gas species created by degradation of vegetation Yi_new = (Yi_old*rho_old + change in rho_i)/rho_new
+! Add water vapor mass from drying to water vapor mass fraction
+  IF (I_WATER > 0) THEN 
+!  ZZ(II,JJ,KK,I_WATER) = ZZ(II,JJ,KK,I_WATER) +  MPV_MOIST_LOSS*RRHO_GAS_NEW
+   ZZ(II,JJ,KK,I_WATER) = ZZ(II,JJ,KK,I_WATER) + (MPV_MOIST_LOSS_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_WATER))*RRHO_GAS_NEW
+!  ZZ(II,JJ,KK,I_WATER) = MIN(1._EB,ZZ(II,JJ,KK,I_WATER))
+!  DMPVDT_FM_VEG(II,JJ,KK,I_WATER) = DMPVDT_FM_VEG(II,JJ,KK,I_WATER) + RDT*MPV_MOIST_LOSS
+  ENDIF
+
+! Add fuel vapor mass from pyrolysis to fuel mass fraction
+  I_FUEL = REACTION(1)%FUEL_SMIX_INDEX
+  IF (I_FUEL /= 0) THEN 
+!  ZZ(II,JJ,KK,I_FUEL) = ZZ(II,JJ,KK,I_FUEL) + MPV_VOLIT*RRHO_GAS_NEW
+   ZZ(II,JJ,KK,I_FUEL) = ZZ(II,JJ,KK,I_FUEL) + (MPV_VOLIT_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_FUEL))*RRHO_GAS_NEW
+!  ZZ(II,JJ,KK,I_FUEL) = MIN(1._EB,ZZ(II,JJ,KK,I_FUEL))
+!  DMPVDT_FM_VEG(II,JJ,KK,I_FUEL) = DMPVDT_FM_VEG(II,JJ,KK,I_FUEL) + RDT*MPV_VOLIT
+  ENDIF
+
+! Add CO2 mass, due to production during char oxidation, to CO2 mass fraction
+  IF (I_CO2 /= -1 .AND. LPC%VEG_CHAR_OXIDATION) THEN 
+   ZZ(II,JJ,KK,I_CO2) = ZZ(II,JJ,KK,I_CO2) + (MPV_CHAR_CO2_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_CO2))*RRHO_GAS_NEW
+  ENDIF
+
+! Remove O2 from gas due to char oxidation
+ IF (LPC%VEG_CHAR_OXIDATION) THEN 
+  ZZ(II,JJ,KK,O2_INDEX) = ZZ(II,JJ,KK,O2_INDEX) - (MPV_CHAR_O2_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_CO2))*RRHO_GAS_NEW
+  ZZ(II,JJ,KK,O2_INDEX) = MAX(0.0_EB,ZZ(II,JJ,KK,O2_INDEX))
+ ENDIF
+
+! WRITE(9998,'(A)')'T,TMP_VEG,QCON_VEG,QRAD_VEG'
+!IF (II==0.5*IBAR .AND. JJ==0.5*JBAR .AND. KK==0.333*KBAR) THEN
+!IF (II==12 .AND. JJ==12 .AND. KK==4) THEN 
+!IF (II==20 .AND. JJ==20 .AND. KK==25) THEN !M=14% and 49% element burnout
+!IF (II==27 .AND. JJ==20 .AND. KK==7) THEN !M=49% not full element burnout
+! WRITE(9998,'(9(ES12.4))')T,TMP_GAS,TMP_VEG,QCON_VEG,QRAD_VEG,LP%VEG_MOIST_MASS,LP%VEG_FUEL_MASS, &
+!                          MPV_MOIST_LOSS_MAX*RDT,MPV_VOLIT_MAX*RDT
+!ENDIF
+
+! V_VEG               = V_VEG + V_CELL
+! TOTAL_MASS_MOIST    = TOTAL_MASS_MOIST + LP%VEG_MOIST_MASS*V_CELL
+! TOTAL_MASS_DRY_FUEL = TOTAL_MASS_DRY_FUEL + LP%VEG_FUEL_MASS*V_CELL
+
+ ENDIF THERMAL_CALC  ! end of thermally thin heat transfer, etc. calculations
+
+! Fill arrays for outputting vegetation variables when OUTPUT_TREE=.TRUE.
+! N_TREE = LP%VEG_N_TREE_OUTPUT
+! IF (N_TREE /= 0) THEN
+!  TREE_OUTPUT_DATA(N_TREE,1,NM) = TREE_OUTPUT_DATA(N_TREE,1,NM) + LP%TMP - 273._EB !C
+!  TREE_OUTPUT_DATA(N_TREE,2,NM) = TREE_OUTPUT_DATA(N_TREE,2,NM) + TMP_GAS - 273._EB !C
+!  TREE_OUTPUT_DATA(N_TREE,3,NM) = TREE_OUTPUT_DATA(N_TREE,3,NM) + LP%VEG_FUEL_MASS*V_CELL*VEG_VF !kg
+!  TREE_OUTPUT_DATA(N_TREE,4,NM) = TREE_OUTPUT_DATA(N_TREE,4,NM) + LP%VEG_MOIST_MASS*V_CELL*VEG_VF !kg
+!  TREE_OUTPUT_DATA(N_TREE,5,NM) = TREE_OUTPUT_DATA(N_TREE,5,NM) + LP%VEG_CHAR_MASS*V_CELL*VEG_VF !kg
+!  TREE_OUTPUT_DATA(N_TREE,6,NM) = TREE_OUTPUT_DATA(N_TREE,6,NM) + LP%VEG_ASH_MASS*V_CELL*VEG_VF !kg
+!  TREE_OUTPUT_DATA(N_TREE,7,NM) = TREE_OUTPUT_DATA(N_TREE,7,NM) + LP%VEG_DIVQC*V_CELL*0.001_EB !kW
+!  TREE_OUTPUT_DATA(N_TREE,8,NM) = TREE_OUTPUT_DATA(N_TREE,8,NM) + LP%VEG_DIVQR*V_CELL*0.001_EB !kW
+!  TREE_OUTPUT_DATA(N_TREE,9,NM) = TREE_OUTPUT_DATA(N_TREE,9,NM) + 1._EB !number of particles
+!  TREE_OUTPUT_DATA(N_TREE,10,NM) = TREE_OUTPUT_DATA(N_TREE,10,NM) + MPV_CHAR_LOSS_TOTAL*V_CELL !kg 
+!  TREE_OUTPUT_DATA(N_TREE,11,NM) = TREE_OUTPUT_DATA(N_TREE,11,NM) - Q_VEG_CHAR_TOTAL*V_CELL*RDT*0.001_EB !kW
+
+!! TREE_OUTPUT_DATA(N_TREE,10,NM) = TREE_OUTPUT_DATA(N_TREE,10,NM) + NUSS_HILPERT_CYL_FORCEDCONV
+!! TREE_OUTPUT_DATA(N_TREE,11,NM) = TREE_OUTPUT_DATA(N_TREE,11,NM) + NUSS_MORGAN_CYL_FREECONV 
+
+!! TREE_OUTPUT_DATA(N_TREE,4,NM) = TREE_OUTPUT_DATA(N_TREE,4,NM) + LP%VEG_PACKING_RATIO
+!! TREE_OUTPUT_DATA(N_TREE,5,NM) = TREE_OUTPUT_DATA(N_TREE,5,NM) + LP%VEG_SV
+
+! ENDIF
+
+ENDDO PARTICLE_LOOP
+
+!print*,'--------------------------------'
+!print '(A,1x,I2,1x,ES12.4)','vege:nm,tree_output divqc ',nm,tree_output_data(1,7,nm)
+
+! Write out total bulk
+!TOTAL_BULKDENS_MOIST = TOTAL_MASS_MOIST/V_VEG
+!TOTAL_BULKDENS_DRY_FUEL = TOTAL_MASS_DRY_FUEL/V_VEG
+!WRITE(9999,'(5(ES12.4))')T,TOTAL_BULKDENS_DRY_FUEL,TOTAL_BULKDENS_MOIST,TOTAL_MASS_DRY_FUEL,TOTAL_MASS_MOIST
+
+!VEG_TOTAL_DRY_MASS(NM)   = TOTAL_MASS_DRY_FUEL
+!VEG_TOTAL_MOIST_MASS(NM) = TOTAL_MASS_MOIST
+
+! Remove vegetation that has completely burned (i.e., LP%R has been set equal to zero)
+CALL REMOVE_PARTICLES(T,NM)
+ 
+END SUBROUTINE RAISED_VEG_MASS_ENERGY_TRANSFER
 
 END MODULE VEGE

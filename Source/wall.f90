@@ -2681,7 +2681,7 @@ PYROLYSIS_PREDICTED_IF: IF (SF%PYROLYSIS_MODEL==PYROLYSIS_PREDICTED) THEN
          CALL PYROLYSIS(SF%N_MATL,SF%MATL_INDEX,SURF_INDEX,ONE_D%IIG,ONE_D%JJG,ONE_D%KKG,ONE_D%TMP(I),ONE_D%TMP_F,ONE_D%IOR,&
                         RHO_TEMP(1:SF%N_MATL),RHO_S0,ONE_D%X(I-1),DT_BC,&
                         M_DOT_G_PPP_ADJUST,M_DOT_G_PPP_ACTUAL,M_DOT_S_PPP,Q_S(I),Q_DOT_G_PPP,Q_DOT_O2_PPP,&
-                        I_INDEX=I,R_DROP=R_SURF,LPU=U_SURF,LPV=V_SURF,LPW=W_SURF)
+                        I_INDEX=I,R_DROP=R_SURF,LPU=U_SURF,LPV=V_SURF,LPW=W_SURF,PART_INDEX=PART_INDEX)
 
          DO NN=1,SF%N_MATL
             ONE_D%MATL_COMP(NN)%RHO(I) = RHO_TEMP(NN)
@@ -3103,7 +3103,7 @@ END SUBROUTINE SOLID_HEAT_TRANSFER_1D
 
 SUBROUTINE PYROLYSIS(N_MATS,MATL_INDEX,SURF_INDEX,IIG,JJG,KKG,TMP_S,TMP_F,IOR,RHO_S,RHO_S0,DEPTH,DT_BC,&
                      M_DOT_G_PPP_ADJUST,M_DOT_G_PPP_ACTUAL,M_DOT_S_PPP,Q_DOT_S_PPP,Q_DOT_G_PPP,Q_DOT_O2_PPP,&
-                     I_INDEX,R_DROP,LPU,LPV,LPW)
+                     I_INDEX,R_DROP,LPU,LPV,LPW,PART_INDEX)
 
 ! Calculate the solid phase reaction. Return heat and mass generation rates per unit volume.
 
@@ -3132,7 +3132,7 @@ USE PHYSICAL_FUNCTIONS, ONLY: GET_MASS_FRACTION,GET_MOLECULAR_WEIGHT,GET_VISCOSI
 USE MATH_FUNCTIONS, ONLY: INTERPOLATE1D_UNIFORM,EVALUATE_RAMP
 USE TURBULENCE, ONLY: RAYLEIGH_HEAT_FLUX_MODEL
 INTEGER, INTENT(IN) :: N_MATS,SURF_INDEX,IIG,JJG,KKG,IOR
-INTEGER, INTENT(IN), OPTIONAL :: I_INDEX
+INTEGER, INTENT(IN), OPTIONAL :: I_INDEX,PART_INDEX
 REAL(EB), INTENT(IN) :: TMP_S,TMP_F,RHO_S0,DT_BC,DEPTH
 REAL(EB), INTENT(IN), OPTIONAL :: R_DROP,LPU,LPV,LPW
 REAL(EB), DIMENSION(:) :: RHO_S(N_MATS),ZZ_GET(1:N_TRACKED_SPECIES),ZZ_AIR(1:N_TRACKED_SPECIES),Y_ALL(1:N_SPECIES)
@@ -3165,6 +3165,7 @@ MATERIAL_LOOP: DO N=1,N_MATS  ! Tech Guide: Sum over the materials, alpha
 
    REACTION_LOOP: DO J=1,ML%N_REACTIONS  ! Tech Guide: Sum over the reactions, beta
 
+!print*,'material,pyolysis_model,n,j,rho_s(n)  ',material(matl_index(n))%ID,ml%pyrolysis_model,n,j,rho_s(n)
       SELECT CASE (ML%PYROLYSIS_MODEL)
 
          CASE (PYROLYSIS_LIQUID)
@@ -3296,7 +3297,7 @@ MATERIAL_LOOP: DO N=1,N_MATS  ! Tech Guide: Sum over the materials, alpha
             ENDIF
 
          CASE (PYROLYSIS_SOLID)
-
+!print*,'in pyrolysis_solid, Material= ',ML%ID
             ! Reaction rate in 1/s (Tech Guide: r_alpha_beta)
             REACTION_RATE = ML%A(J)*(RHO_S(N)/RHO_S0)**ML%N_S(J)*EXP(-ML%E(J)/(R0*TMP_S))
             ! power term
@@ -3335,26 +3336,28 @@ MATERIAL_LOOP: DO N=1,N_MATS  ! Tech Guide: Sum over the materials, alpha
          CASE (PYROLYSIS_VEGETATION)
 
 !            SF => SURFACE(SURF_INDEX)
-!            LP => LAGRANGIAN_PARTICLE(PART_INDEX)
+             LP => LAGRANGIAN_PARTICLE(PART_INDEX)
 !
-!!rm -> Remove particle 
-!!           IF (ML%NU_O2(J) <= 0._EB) THEN 
-!!print '(A,1x,1I3,3ES12.4)','N,rho_0(:,n)',n,sf%rho_0(:,n)
-!            IF (SF%VEG_REMOVE_CHARRED) THEN
-!              SFRHO_VEG_MIN  = 0.001_EB*SUM(SF%RHO_0(1:SF%N_CELLS_MAX+1,1))
-!              IF(N==1 .AND. RHO_S(N) <= SFRHO_VEG_MIN) THEN  !remove particle if veg is fully charred
-!                LAGRANGIAN_PARTICLE(PART_INDEX)%ONE_D%BURNAWAY = .TRUE.
-!                RETURN
-!              ENDIF
-!            ENDIF
-!            IF (SF%VEG_REMOVE_ASH) THEN
-!              SFRHO_VEG_MIN  = 0.001_EB*SUM(SF%RHO_0(1:SF%N_CELLS_MAX+1,1))
-!              SFRHO_CHAR_MIN = ML%NU_RESIDUE(1,J)*SFRHO_VEG_MIN
-!              IF (N==3 .AND. RHO_S(N) <= SFRHO_CHAR_MIN) THEN !remove particle if char is fully oxidized
-!                LAGRANGIAN_PARTICLE(PART_INDEX)%ONE_D%BURNAWAY = .TRUE.
-!                RETURN
-!              ENDIF
-!            ENDIF
+!rm -> Remove particle 
+!print '(A,1x,2I3,1ES12.4)','N,J,sum(rho_0(:,N))',n,j,sum(sf%rho_0(1:sf%n_cells_max+1,n))
+!print*,ML%ID
+!           IF (SF%VEG_REMOVE_CHARRED) THEN
+!             SFRHO_VEG_MIN  = 0.001_EB*SUM(SF%RHO_0(1:SF%N_CELLS_MAX+1,1))
+!             IF(ML%ID /= 'MOISTURE' .AND. ML%NU_O2_CHAR(J) == 0.0_EB ) THEN !Dry veg
+!               IF(RHO_S(MATL_INDEX(N)) <= SFRHO_VEG_MIN) THEN  !remove particle if veg is fully charred
+!                 LAGRANGIAN_PARTICLE(PART_INDEX)%ONE_D%BURNAWAY = .TRUE.
+!                 RETURN
+!               ENDIF
+!             ENDIF
+!           ENDIF
+!           IF (SF%VEG_REMOVE_ASH) THEN
+!             SFRHO_VEG_MIN  = 0.001_EB*SUM(SF%RHO_0(1:SF%N_CELLS_MAX+1,1))
+!             SFRHO_CHAR_MIN = ML%NU_RESIDUE(1,J)*SFRHO_VEG_MIN
+!             IF (N==3 .AND. RHO_S(N) <= SFRHO_CHAR_MIN) THEN !remove particle if char is fully oxidized
+!               LAGRANGIAN_PARTICLE(PART_INDEX)%ONE_D%BURNAWAY = .TRUE.
+!               RETURN
+!             ENDIF
+!           ENDIF
 !rm <-
             ! Tech Guide: r_alpha,beta (1/s)
             REACTION_RATE = ML%A(J)*(RHO_S(N)/RHO_S0)**ML%N_S(J)*EXP(-ML%E(J)/(R0*TMP_S))
@@ -3376,19 +3379,34 @@ MATERIAL_LOOP: DO N=1,N_MATS  ! Tech Guide: Sum over the materials, alpha
 
 !rm -> Impose maximum bound on pyrolysis generated fuel vapor creation kg/s/m^3 
 !if (n==1) print '(A,1x,1I3,3ES12.4)','N,RHO_S(N),DT_BC,RHO_S0*REACTION_RATE',n,rho_s(n),dt_bc,rho_s0*reaction_rate
-           IF (N==1) THEN
-             VEG_MLRMAX = SF%VEG_MLRPUVMAX*DX(IIG)*DY(JJG)*DZ(KKG)/(LP%PWT*PI*SF%LENGTH*SF%THICKNESS**2)
-             VEG_MLRMAX = (1.0_EB - ML%NU_RESIDUE(1,J))*VEG_MLRMAX
-             RHO_DOT = MIN(RHO_S0*REACTION_RATE,VEG_MLRMAX)
-!print '(A,1x,1I3,1ES12.4)','N,VEG_MLRMAX',n,veg_mlrmx
+!          IF (N==1) THEN
+!            VEG_MLRMAX = SF%VEG_MLRPUVMAX*DX(IIG)*DY(JJG)*DZ(KKG)/(LP%PWT*PI*SF%LENGTH*SF%THICKNESS**2)
+!            VEG_MLRMAX = (1.0_EB - ML%NU_RESIDUE(MATL_INDEX(N),J))*VEG_MLRMAX
+!            RHO_DOT = MIN(RHO_S0*REACTION_RATE,VEG_MLRMAX)
+!if (RHO_S0*REACTION_RATE > VEG_MLRMAX) &
+!print '(A,1x,1I3,3ES12.4)','N,rhos0*rr,VEG_MLRMAX,PWT',n,rho_s0*reaction_rate,veg_mlrmax,lp%pwt
              RHO_DOT  = MIN(RHO_DOT , RHO_S(N)/DT_BC)
-           ENDIF
+!          ENDIF
 !rm <-
       END SELECT
 
       ! Optional limiting of fuel burnout time
 
       IF (SF%MINIMUM_BURNOUT_TIME<1.E5_EB) RHO_DOT = MIN(RHO_DOT,RHO_S0/SF%MINIMUM_BURNOUT_TIME)
+
+      ! Another way of handling the maxiumum massloss rate
+      VEG_MLRMAX = SF%VEG_MLRPUVMAX*DX(IIG)*DY(JJG)*DZ(KKG)/(LP%PWT*PI*SF%LENGTH*SF%THICKNESS**2)
+!     VEG_MLRMAX = (1.0_EB - ML%NU_RESIDUE(MATL_INDEX(N),J))*VEG_MLRMAX
+      RHO_DOT = MIN(RHO_S0*REACTION_RATE,VEG_MLRMAX)
+
+      !Remove fully pyrolyzed vegetation particles
+      IF (SF%VEG_REMOVE_CHARRED) THEN
+        SFRHO_VEG_MIN  = 0.001_EB*SUM(SF%RHO_0(1:SF%N_CELLS_MAX+1,1))
+        IF(RHO_S(1) <= SFRHO_VEG_MIN) THEN 
+          LAGRANGIAN_PARTICLE(PART_INDEX)%ONE_D%BURNAWAY = .TRUE.
+          RETURN
+        ENDIF
+      ENDIF
 
       ! Compute new component density, RHO_S(N)
 
@@ -3420,7 +3438,7 @@ MATERIAL_LOOP: DO N=1,N_MATS  ! Tech Guide: Sum over the materials, alpha
       ! If there is char oxidation, save the HRR per unit volume generated
 
       IF (ML%NU_O2_CHAR(J)>0._EB) THEN
-         Q_DOT_O2_PPP = Q_DOT_O2_PPP + ABS(M_DOT_G_PPP_ACTUAL(REACTION(1)%AIR_SMIX_INDEX)*Y_O2_INFTY*H_R/ML%NU_O2_CHAR(J))
+!        Q_DOT_O2_PPP = Q_DOT_O2_PPP + ABS(M_DOT_G_PPP_ACTUAL(REACTION(1)%AIR_SMIX_INDEX)*Y_O2_INFTY*H_R/ML%NU_O2_CHAR(J))
       ENDIF
 
    ENDDO REACTION_LOOP
