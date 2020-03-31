@@ -7,19 +7,26 @@
 #ifndef BUILDDATE_PP
 #define BUILDDATE_PP "unknown"
 #endif
-MODULE COMP_FUNCTIONS
 
-! I/O + OS functions
+!> \brief A collection of utility routines used throughout FDS.
+
+MODULE COMP_FUNCTIONS
 
 USE PRECISION_PARAMETERS
 IMPLICIT NONE
 
 CONTAINS
 
-REAL(EB) FUNCTION CURRENT_TIME()  ! Returns the wall clock time in seconds.
+
+!> \brief Returns the wall clock time in seconds.
+
+REAL(EB) FUNCTION CURRENT_TIME()
 USE MPI
 CURRENT_TIME = MPI_WTIME()
 END FUNCTION CURRENT_TIME
+
+!> \brief Return the current time and date in ISO_8601 format.
+!> \param DATE A character string containing the date and time of day.
 
 SUBROUTINE GET_DATE_ISO_8601(DATE)
 
@@ -39,6 +46,10 @@ WRITE(DATE,'(I4.4,"-",I2.2,"-",I2.2,"T",I2.2,":",I2.2,":",I2.2,".",I3.3,SP,I3.2,
         VALUES(8), HOURS_TZ, ABS(MINUTES_TZ)
 
 END SUBROUTINE GET_DATE_ISO_8601
+
+
+!> \brief Return the current time and date
+!> \param DATE A character string containing the date and time of day
 
 SUBROUTINE GET_DATE(DATE)
 
@@ -80,9 +91,11 @@ WRITE(DATE,'(A,I3,A,I4,2X,I2.2,A,I2.2,A,I2.2)') TRIM(MONTH),DATE_TIME(3),', ',DA
 END SUBROUTINE GET_DATE
 
 
-SUBROUTINE SHUTDOWN(MESSAGE,PROCESS_0_ONLY)
+!> \brief Stop the code gracefully after writing a message.
+!> \param MESSAGE Character string containing an explanation for shutting down.
+!> \param PROCESS_0_ONLY If .TRUE., only MPI process 0 should write the message.
 
-! Stops the code gracefully after writing a message
+SUBROUTINE SHUTDOWN(MESSAGE,PROCESS_0_ONLY)
 
 USE GLOBAL_CONSTANTS, ONLY: MYID,LU_ERR,CHID,SETUP_STOP,STOP_STATUS,N_MPI_PROCESSES
 CHARACTER(*) MESSAGE
@@ -102,13 +115,15 @@ STOP_STATUS = SETUP_STOP
 END SUBROUTINE SHUTDOWN
 
 
-SUBROUTINE SYSTEM_MEM_USAGE(VALUE_RSS)
+!> \brief Return current system memory usage.
+!>
+!> Return the memory used by the given process at the time of the call. It only works on a Linux machine because
+!> it searches for the system file called '/proc/PID/status' and reads the VmRSS value (kB).
+!> The DEVC output QUANTITY 'RAM' outputs this value in units of MB.
+!> Normally, this routine just returns 0 because it is non-standard Fortran and we have disconnected the GETPID call.
+!> To invoke it, uncomment the GETPID statement, and the 'USE IFPORT' statement if compiling with Intel Fortran.
 
-! This routine returns the memory used by the given process at the time of the call. It only works on a Linux machine because
-! it searches for the system file called '/proc/PID/status' and reads the VmRSS value (kB).
-! The DEVC output QUANTITY 'RAM' outputs this value in units of MB.
-! Normally, this routine just returns 0 because it is non-standard Fortran and we have disconnected the GETPID call.
-! To invoke it, uncomment the GETPID statement, and the 'USE IFPORT' statement if compiling with Intel Fortran.
+SUBROUTINE SYSTEM_MEM_USAGE(VALUE_RSS)
 
 !USE IFPORT  ! Intel Fortran extension library. This is needed for GETPID.
 INTEGER, INTENT(OUT) :: VALUE_RSS
@@ -146,11 +161,15 @@ CLOSE(1000)
 END SUBROUTINE SYSTEM_MEM_USAGE
 
 
-SUBROUTINE GET_INPUT_FILE ! Read the argument after the command
+!> \brief Read the name of the FDS input file, which is the first argument after the fds command itself.
+
+SUBROUTINE GET_INPUT_FILE
 USE GLOBAL_CONSTANTS, ONLY: FN_INPUT
 IF (FN_INPUT=='null') CALL GET_COMMAND_ARGUMENT(1,FN_INPUT)
 END SUBROUTINE GET_INPUT_FILE
 
+
+!> \brief Assign a unique integer to be used as a file logical unit.
 
 INTEGER FUNCTION GET_FILE_NUMBER()
 USE GLOBAL_CONSTANTS, ONLY: MYID,FILE_COUNTER
@@ -159,9 +178,12 @@ GET_FILE_NUMBER = FILE_COUNTER(MYID)
 END FUNCTION GET_FILE_NUMBER
 
 
-SUBROUTINE CHECKREAD(NAME,LU,IOS)
+!> \brief Look through the FDS input file for the given namelist variable and then stop at that line.
+!> \param NAME The four character namelist variable
+!> \param LU Logical unit of the FDS input file
+!> \param IOS Error code
 
-! Look for the namelist variable NAME and then stop at that line.
+SUBROUTINE CHECKREAD(NAME,LU,IOS)
 
 USE GLOBAL_CONSTANTS, ONLY: INPUT_FILE_LINE_NUMBER,STOP_STATUS,SETUP_STOP,MYID,LU_ERR
 INTEGER :: II
@@ -200,9 +222,12 @@ ENDDO READLOOP
 END SUBROUTINE CHECKREAD
 
 
-SUBROUTINE SCAN_INPUT_FILE(LU,IOS,TEXT)
+!> \brief Look for odd or illegal characters in the FDS input file.
+!> \param LU Logical Unit of FDS input file.
+!> \param IOS Error code, 0 means the bad text was found, 1 means it was not.
+!> \param TEXT Illegal character found in FDS input file.
 
-! Look for odd or illegal characters in the input file.
+SUBROUTINE SCAN_INPUT_FILE(LU,IOS,TEXT)
 
 INTEGER, INTENT(OUT) :: IOS
 INTEGER, INTENT(IN) :: LU
@@ -221,6 +246,11 @@ ENDDO READLOOP
 10 RETURN
 END SUBROUTINE SCAN_INPUT_FILE
 
+
+!> \brief Look for a certain TEXT string in the input file.
+!> \param LU Logical Unit of the FDS input file
+!> \param TEXT Character string to search for
+!> \param FOUND T if the TEXT is found; F if it is not
 
 SUBROUTINE SEARCH_INPUT_FILE(LU,TEXT,FOUND)
 
@@ -248,9 +278,12 @@ ENDDO READLOOP
 END SUBROUTINE SEARCH_INPUT_FILE
 
 
-SUBROUTINE APPEND_FILE(LU,N_TEXT_LINES,T)
+!> \brief Read through a comma-delimited output file and stop when the time, T, exceeds the last time read.
+!> \param LU Logical Unit of the file to be appended
+!> \param N_TEXT_LINES Number of header lines in the file
+!> \param T The time at which to append the data
 
-! Read through a file and stop when T exceeds the last time read
+SUBROUTINE APPEND_FILE(LU,N_TEXT_LINES,T)
 
 USE GLOBAL_CONSTANTS, ONLY: CLIP_RESTART_FILES
 INTEGER, INTENT(IN) :: LU,N_TEXT_LINES
@@ -276,8 +309,10 @@ RETURN
 END SUBROUTINE APPEND_FILE
 
 
+!> \brief Reorder an input sextuple XB if needed.
+!> \param XB User-specified real sextuplet.
+
 SUBROUTINE CHECK_XB(XB)
-! Reorder an input sextuple XB if needed
 REAL(EB) :: DUMMY,XB(6)
 INTEGER  :: I
 DO I=1,5,2
@@ -290,12 +325,18 @@ ENDDO
 END SUBROUTINE CHECK_XB
 
 
-SUBROUTINE CHANGE_UNITS(QUANTITY,UNITS,SPATIAL_STATISTIC,TEMPORAL_STATISTIC,MYID,LU_ERR)
+!> \brief Change the units of the output quantity if it is an integrated quantity.
+!> \param QUANTITY Name of output quantity.
+!> \param UNITS Quantity units to be changed.
+!> \param SPATIAL_STATISTIC Type of spatial integration.
+!> \param TEMPORAL_STATISTIC Type of time integration.
+!> \param LU_ERR Logical Unit of error output file.
 
-! Change the units of the DEVC output if it is an integrated quantity
+SUBROUTINE CHANGE_UNITS(QUANTITY,UNITS,SPATIAL_STATISTIC,TEMPORAL_STATISTIC,LU_ERR)
 
+USE GLOBAL_CONSTANTS, ONLY: MYID
 CHARACTER(LABEL_LENGTH), INTENT(IN) :: QUANTITY,SPATIAL_STATISTIC,TEMPORAL_STATISTIC
-INTEGER, INTENT(IN) :: MYID,LU_ERR
+INTEGER, INTENT(IN) :: LU_ERR
 CHARACTER(LABEL_LENGTH), INTENT(INOUT) :: UNITS
 CHARACTER(LABEL_LENGTH) :: NEW_UNITS
 CHARACTER(MESSAGE_LENGTH) :: MESSAGE
@@ -819,23 +860,21 @@ WC%OBST_INDEX         => OS%INTEGERS( 7,STORAGE_INDEX) ; IF (NEW) WC%OBST_INDEX 
 WC%PRESSURE_BC_INDEX  => OS%INTEGERS( 8,STORAGE_INDEX) ; IF (NEW) WC%PRESSURE_BC_INDEX = DIRICHLET
 WC%LAPLACE_BC_INDEX   => OS%INTEGERS( 9,STORAGE_INDEX) ; IF (NEW) WC%LAPLACE_BC_INDEX = NEUMANN
 WC%VENT_INDEX         => OS%INTEGERS(10,STORAGE_INDEX) ; IF (NEW) WC%VENT_INDEX = 0
-WC%NODE_INDEX         => OS%INTEGERS(11,STORAGE_INDEX) ; IF (NEW) WC%NODE_INDEX = 0
-WC%JD11_INDEX         => OS%INTEGERS(12,STORAGE_INDEX) ; IF (NEW) WC%JD11_INDEX = 0
-WC%JD12_INDEX         => OS%INTEGERS(13,STORAGE_INDEX) ; IF (NEW) WC%JD12_INDEX = 0
-WC%JD21_INDEX         => OS%INTEGERS(14,STORAGE_INDEX) ; IF (NEW) WC%JD21_INDEX = 0
-WC%JD22_INDEX         => OS%INTEGERS(15,STORAGE_INDEX) ; IF (NEW) WC%JD22_INDEX = 0
+WC%JD11_INDEX         => OS%INTEGERS(11,STORAGE_INDEX) ; IF (NEW) WC%JD11_INDEX = 0
+WC%JD12_INDEX         => OS%INTEGERS(12,STORAGE_INDEX) ; IF (NEW) WC%JD12_INDEX = 0
+WC%JD21_INDEX         => OS%INTEGERS(13,STORAGE_INDEX) ; IF (NEW) WC%JD21_INDEX = 0
+WC%JD22_INDEX         => OS%INTEGERS(14,STORAGE_INDEX) ; IF (NEW) WC%JD22_INDEX = 0
 
 ! Assign and initialize reals
 
 WC%DUNDT              => OS%REALS( 1,STORAGE_INDEX) ; IF (NEW) WC%DUNDT = 0._EB
-WC%EW                 => OS%REALS( 2,STORAGE_INDEX) ; IF (NEW) WC%EW = 0._EB
-WC%X                  => OS%REALS( 3,STORAGE_INDEX)
-WC%Y                  => OS%REALS( 4,STORAGE_INDEX)
-WC%Z                  => OS%REALS( 5,STORAGE_INDEX)
-WC%VEL_ERR_NEW        => OS%REALS( 6,STORAGE_INDEX) ; IF (NEW) WC%VEL_ERR_NEW = 0._EB
-WC%V_DEP              => OS%REALS( 7,STORAGE_INDEX) ; IF (NEW) WC%V_DEP = 0._EB
-WC%Q_LEAK             => OS%REALS( 8,STORAGE_INDEX) ; IF (NEW) WC%Q_LEAK = 0._EB
-WC%VEG_HEIGHT         => OS%REALS( 9,STORAGE_INDEX)
+WC%X                  => OS%REALS( 2,STORAGE_INDEX)
+WC%Y                  => OS%REALS( 3,STORAGE_INDEX)
+WC%Z                  => OS%REALS( 4,STORAGE_INDEX)
+WC%VEL_ERR_NEW        => OS%REALS( 5,STORAGE_INDEX) ; IF (NEW) WC%VEL_ERR_NEW = 0._EB
+WC%V_DEP              => OS%REALS( 6,STORAGE_INDEX) ; IF (NEW) WC%V_DEP = 0._EB
+WC%Q_LEAK             => OS%REALS( 7,STORAGE_INDEX) ; IF (NEW) WC%Q_LEAK = 0._EB
+WC%VEG_HEIGHT         => OS%REALS( 8,STORAGE_INDEX)
 
 CALL ONE_D_POINTERS(WALL_INDEX_LOCAL,NEW,N_WALL_SCALAR_REALS,N_WALL_SCALAR_INTEGERS,N_WALL_SCALAR_LOGICALS)
 
@@ -854,11 +893,10 @@ CFA => MESHES(NM)%CFACE(CFACE_INDEX_LOCAL)
 
 CFA%CFACE_INDEX        => OS%INTEGERS(1,STORAGE_INDEX) ; IF (NEW) CFA%CFACE_INDEX   = CFACE_INDEX
 CFA%SURF_INDEX         => OS%INTEGERS(2,STORAGE_INDEX) ; IF (NEW) CFA%SURF_INDEX    = SURF_INDEX
-CFA%NODE_INDEX         => OS%INTEGERS(3,STORAGE_INDEX) ; IF (NEW) CFA%NODE_INDEX    = 0
-CFA%VENT_INDEX         => OS%INTEGERS(4,STORAGE_INDEX) ; IF (NEW) CFA%VENT_INDEX    = 0
-CFA%BOUNDARY_TYPE      => OS%INTEGERS(5,STORAGE_INDEX) ; IF (NEW) CFA%BOUNDARY_TYPE = NULL_BOUNDARY
-CFA%CUT_FACE_IND1      => OS%INTEGERS(6,STORAGE_INDEX) ; IF (NEW) CFA%CUT_FACE_IND1 = -11
-CFA%CUT_FACE_IND2      => OS%INTEGERS(7,STORAGE_INDEX) ; IF (NEW) CFA%CUT_FACE_IND2 = -11
+CFA%VENT_INDEX         => OS%INTEGERS(3,STORAGE_INDEX) ; IF (NEW) CFA%VENT_INDEX    = 0
+CFA%BOUNDARY_TYPE      => OS%INTEGERS(4,STORAGE_INDEX) ; IF (NEW) CFA%BOUNDARY_TYPE = NULL_BOUNDARY
+CFA%CUT_FACE_IND1      => OS%INTEGERS(5,STORAGE_INDEX) ; IF (NEW) CFA%CUT_FACE_IND1 = -11
+CFA%CUT_FACE_IND2      => OS%INTEGERS(6,STORAGE_INDEX) ; IF (NEW) CFA%CUT_FACE_IND2 = -11
 
 ! Assign and initialize reals
 
@@ -905,6 +943,7 @@ ONE_D%JJG             => OS%INTEGERS(IC+ 7,STORAGE_INDEX) ; IF (NEW) ONE_D%JJG  
 ONE_D%KKG             => OS%INTEGERS(IC+ 8,STORAGE_INDEX) ; IF (NEW) ONE_D%KKG           = 0
 ONE_D%IOR             => OS%INTEGERS(IC+ 9,STORAGE_INDEX) ; IF (NEW) ONE_D%IOR           = 0
 ONE_D%PRESSURE_ZONE   => OS%INTEGERS(IC+10,STORAGE_INDEX) ; IF (NEW) ONE_D%PRESSURE_ZONE = 0
+ONE_D%NODE_INDEX      => OS%INTEGERS(IC+11,STORAGE_INDEX) ; IF (NEW) ONE_D%NODE_INDEX    = 0
 
 I1 = IC+1+N_ONE_D_SCALAR_INTEGERS ; I2 = I1 + SF%ONE_D_INTEGERS_ARRAY_SIZE(1) - 1
 ONE_D%N_LAYER_CELLS(1:I2-I1+1) => OS%INTEGERS(I1:I2,STORAGE_INDEX)
@@ -952,7 +991,9 @@ ONE_D%WORK2           => OS%REALS(RC+27,STORAGE_INDEX) ; IF (NEW) ONE_D%WORK2   
 ONE_D%Q_DOT_G_PP      => OS%REALS(RC+28,STORAGE_INDEX) ; IF (NEW) ONE_D%Q_DOT_G_PP      = 0._EB
 ONE_D%Q_DOT_O2_PP     => OS%REALS(RC+29,STORAGE_INDEX) ; IF (NEW) ONE_D%Q_DOT_O2_PP     = 0._EB
 ONE_D%Q_CONDENSE      => OS%REALS(RC+30,STORAGE_INDEX) ; IF (NEW) ONE_D%Q_CONDENSE      = 0._EB
-ONE_D%VEG_HEIGHT      => OS%REALS(RC+31,STORAGE_INDEX) ; IF (NEW) ONE_D%VEG_HEIGHT      = 0._EB
+ONE_D%TMP_F_OLD       => OS%REALS(RC+31,STORAGE_INDEX) ; IF (NEW) ONE_D%TMP_F_OLD       = SF%TMP_FRONT
+ONE_D%K_SUPPRESSION   => OS%REALS(RC+32,STORAGE_INDEX) ; IF (NEW) ONE_D%K_SUPPRESSION   = 0._EB
+ONE_D%VEG_HEIGHT      => OS%REALS(RC+33,STORAGE_INDEX) ; IF (NEW) ONE_D%VEG_HEIGHT      = 0._EB
 
 I1 = RC+1+N_ONE_D_SCALAR_REALS ; I2 = I1 + SF%ONE_D_REALS_ARRAY_SIZE(1) - 1
 ONE_D%MASSFLUX_SPEC(1:I2-I1+1) => OS%REALS(I1:I2,STORAGE_INDEX)
@@ -1939,7 +1980,7 @@ SUBROUTINE TRANSFORM_COORDINATES(X,Y,Z,MOVE_INDEX)
 
 INTEGER, INTENT(IN) :: MOVE_INDEX
 REAL(EB), INTENT(INOUT) :: X,Y,Z
-REAL(EB) :: M(3,3),UP(3,1),S(3,3),UUT(3,3),IDENTITY(3,3),X_VECTOR(3,1),X_VECTOR_0(3,1),X_VECTOR_1(4,1)
+REAL(EB) :: M(3,3),UP(3,1),S(3,3),UUT(3,3),IDENTITY(3,3),X_VECTOR(3,1),X_VECTOR_0(3,1),X_VECTOR_1(4,1),SCL(3,3)
 TYPE(MOVEMENT_TYPE), POINTER :: MV
 
 MV => MOVEMENT(MOVE_INDEX)
@@ -1966,7 +2007,12 @@ IDENTITY = RESHAPE ((/ 1.0_EB,0.0_EB,0.0_EB,&
                        0.0_EB,0.0_EB,1.0_EB /),(/3,3/))
 M = UUT + COS(MV%ROTATION_ANGLE*DEG2RAD)*(IDENTITY - UUT) + SIN(MV%ROTATION_ANGLE*DEG2RAD)*S
 
-X_VECTOR = X_VECTOR_0 + MATMUL(M,X_VECTOR-X_VECTOR_0)
+SCL= RESHAPE((/ MV%SCALE*MV%SCALEX,0.0_EB,0.0_EB, &
+                0.0_EB,MV%SCALE*MV%SCALEY,0.0_EB, &
+                0.0_EB,0.0_EB,MV%SCALE*MV%SCALEZ /),(/3,3/))
+
+! Note: Scaling takes precedence over rotation transformation (applied first on the local axes):
+X_VECTOR = X_VECTOR_0 + MATMUL(MATMUL(M,SCL),X_VECTOR-X_VECTOR_0)
 X = X_VECTOR(1,1) + MV%DX
 Y = X_VECTOR(2,1) + MV%DY
 Z = X_VECTOR(3,1) + MV%DZ

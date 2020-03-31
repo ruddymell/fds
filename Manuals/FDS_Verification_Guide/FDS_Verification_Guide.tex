@@ -2531,7 +2531,11 @@ The test cases called {\ct Miscellaneous/layer\_1mesh.fds} and {\ct layer\_4mesh
 
 There are numerous examples in the heat transfer literature of exact solutions, for simple configurations of hot and cold objects, of the radiation transport equation. This chapter presents a number of these examples, plus others aimed at assessing the influence of absorptive media.
 
-\section{Radiation View Factors (\texorpdfstring{\textct{plate\_view\_factor}}{plate\_view\_factor}) }
+\section{Radiation View Factors}
+
+The examples in this section test the basic radiation transport solver against exact solutions derived for simple geometric shapes.
+
+\subsection{Hot Plate (\texorpdfstring{\textct{plate\_view\_factor}}{plate\_view\_factor}) }
 \label{plate_view_factor}
 
 These verification cases test the computation of radiative heat flux from a hot plate to a target surface 1~m away in different coordinate systems. The radiating surface is at 1000~\si{\degree C} and has an emissivity of 1.0.  The exact values are calculated using the analytical expressions for the view factors.
@@ -2549,6 +2553,34 @@ A comparison of exact values and FDS predictions at three different angular reso
 \includegraphics[height=2.2in]{SCRIPT_FIGURES/plate_view_factor}
 \caption[The {\ct plate\_view\_factor} test case]{Convergence study showing increased accuracy of radiative transport equation with increasing number of angles.}
 \label{fig_plate_view_factor}
+\end{figure}
+
+\subsection{Plates at a Right Angle (\texorpdfstring{\textct{geom\_rad}}{geom\_rad}) }
+\label{geom_rad}
+
+In this case, two flat rectangular obstructions (0.98~m by 0.98~m, $A=0.9604$~m$^2$) abut at a right angle. The view factor $F_{12}=0.20004$. The vertical plate has a surface temperature of $T_{\rm hot}=1273.15$~K and the horizontal plate has a temperature of $T_{\rm cold}=293.15$~K. The emissivity of each surface is 1, and the convective heat transfer coefficient is assumed to be 0. Two cases are considered. The first is where the plates are input as conventional rectangular {\ct OBST}s, and the second where the plates are immersed boundary {\ct GEOM}s. There should be no difference in the total energy radiated from hot to cold plates, Fig.~\ref{geom_rad_fig} (left), or the incident heat flux in the center of the cold plate, Fig.~\ref{geom_rad_fig} (right). The exact solution for the integrated incident (i.e. incoming) heat flux to the surface of the cold plate is $F_{12} \sigma T_{\rm hot}^4 A= 28.62$~kW. The purpose of this exercise is to ensure that both types of obstructions behave the same way.
+
+\begin{figure}[!ht]
+\begin{tabular*}{\textwidth}{lr}
+\includegraphics[height=2.2in]{SCRIPT_FIGURES/geom_rad_energy} &
+\includegraphics[height=2.2in]{SCRIPT_FIGURES/geom_rad_flux}
+\end{tabular*}
+\caption[Results of the {\ct geom\_rad} test case]{A hot wall radiates onto a cold floor. At left is the total rate of energy transfer, and at right is the heat flux to the center of the floor.}
+\label{geom_rad_fig}
+\end{figure}
+
+\subsection{Plates at a Right Angle, Part 2 (\texorpdfstring{\textct{geom\_rad\_2}}{geom\_rad\_2}) }
+\label{geom_rad_2}
+
+The case in the previous section is repeated, only now the two plates are not aligned with the Cartesian grid. Figure~\ref{geom_rad_2_fig} displays the comparison of exact and computed solutions for the integrated incident heat flux to the cold plate.
+
+\begin{figure}[!ht]
+\begin{tabular*}{\textwidth}{lr}
+\includegraphics[height=2.2in]{SCRIPT_FIGURES/geom_rad_2_energy} &
+\includegraphics[height=2.2in]{SCRIPT_FIGURES/geom_rad_2_flux}
+\end{tabular*}
+\caption[Results of the {\ct geom\_rad\_2} test case]{The integrated (left) and point (right) heat flux from a hot plate to a cold plate at a right angle.}
+\label{geom_rad_2_fig}
 \end{figure}
 
 
@@ -5233,6 +5265,20 @@ In this case, we compare FDS predictions against a 1D spherical heat transfer mo
 \end{figure}
 
 
+\section{Water Droplets on Solid Surfaces}
+
+\subsection{Basic Flow and Mass Conservation (\texorpdfstring{{\textct{geom\_sprk\_mass}}}{geom\_sprk\_mass}) }
+\label{geom_sprk_mass}
+
+In the test case called {\ct Sprinklers\_and\_Sprays/geom\_sprk\_mass.fds}, two identical sprinklers pour water on two identical obstructions, one of which is created using the traditional {\ct OBST} input parameters, the other is created using the immersed boundary {\ct GEOM} parameters. The objective is simply to ensure that the droplets behave the same way in both cases. The sprinklers operate for 4~s, each discharging 10.5~L of water. The {\ct HORIZONTAL\_VELOOCITY} of the droplets on the solid surfaces is set to a low value of 0.05~m/s to allow for all of the water to pool before dripping over the edge. Figure~\ref{geom_sprk_mass_fig} displays the accumulated mass of water on each obstruction as a function of time, demonstrating equivalent behavior by both types of solid obstructions.
+\begin{figure}[h!]
+\centering
+\includegraphics[height=2.2in]{SCRIPT_FIGURES/geom_sprk_mass}
+\caption[The {\ct geom\_sprk\_mass} test case]{Mass of water pooled on two solid obstructions.}
+\label{geom_sprk_mass_fig}
+\end{figure}
+
+
 \section{Flow Rate and Pipe Networks (\texorpdfstring{{\textct{flow\_rate\_2}}}{flow\_rate\_2}) }
 \label{flow_rate_2}
 
@@ -5445,6 +5491,43 @@ This case starts with the same input as \textct{leak\_test}.  A second leakage v
    \caption[The \textct{leak\_test\_2} test case]{Vector plot of pressure at 10 s with geometry clipped to show compartment interiors (left) and a plot of zone pressures (right).}
    \label{fig_HVAC_leak_fan}
 \end{figure}
+
+\subsection{Leakage through Immersed Boundary Wall (\texorpdfstring{\textct{leak\_test\_3}}{leak\_test\_3})}
+\label{leak_test_3}
+
+This case is intended to ensure that an immersed boundary obstruction ({\ct GEOM}) handles leakage in the same way as a simple grid-conforming obstruction ({\ct OBST}). Two rooms are separated by a wall specified via either an {\ct OBST} line or a {\ct GEOM} line. Air is pumped into the room on one side of the wall at a rate of $\dot{V}=0.02$~m$^3$/s, and the wall is assigned a leakage area $A_{\rm L}=0.001$~m$^2$. The room on the other side of the wall leaks to the outside through a hole of equal area. The pressure rise in rooms 1 and 2, $\Delta p_1$ and $\Delta p_2$, are found by solving:
+\be
+   \dot{V} = A_{\rm L} \sqrt{ \frac{2 |\Delta p_1-\Delta p_2|}{\rho_0} } \quad ; \quad \dot{V} = A_{\rm L} \sqrt{ \frac{2 |\Delta p_2|}{\rho_0} }
+\ee
+The solution is that $\Delta p_1=480$~Pa and $\Delta p_2=240$~Pa, as shown in Fig.~\ref{fig_leak_test_3}.
+
+
+\begin{figure}[ht]
+   \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+      \scalebox{1.0}{ \includegraphics[height=2.2in]{SCRIPT_FIGURES/leak_test_3_obst} } &
+      \scalebox{1.0}{ \includegraphics[height=2.2in]{SCRIPT_FIGURES/leak_test_3_geom} }
+   \end{tabular*}
+   \caption[The \textct{leak\_test\_3} test case]{Pressure rise in adjacent compartments separated by an {\ct OBST} (left) and {\ct GEOM} (right) wall.}
+   \label{fig_leak_test_3}
+\end{figure}
+
+\subsection{Leakage through Immersed Boundary Compartment (\texorpdfstring{\textct{leak\_test\_4}}{leak\_test\_4})}
+\label{leak_test_4}
+
+This case is intended to ensure that a simple compartment constructed of immersed boundary obstructions ({\ct GEOM}) handles leakage in the same way as a simple grid-conforming compartment. Air is pumped into the compartment via a small rotated cube inside at a rate of $\dot{V}=0.024$~m$^3$/s, and the walls are assigned a total leakage area $A_{\rm L}=0.001$~m$^2$. The pressure rise, $\Delta p$ is found by solving:
+\be
+   \dot{V} = A_{\rm L} \sqrt{ \frac{2 |\Delta p|}{\rho_0} } \quad ; \quad \rho_0=1.195 \; \hbox{kg/m}^3
+\ee
+The solution is that $\Delta p=344.16$~Pa, as shown in Fig.~\ref{fig_leak_test_4}.
+
+
+\begin{figure}[ht]
+  \centering
+      \scalebox{1.0}{ \includegraphics[height=2.2in]{SCRIPT_FIGURES/leak_test_4} } 
+   \caption[The \textct{leak\_test\_4} test case]{Pressure rise in a compartment constructed of immersed boundary obstructions.}
+   \label{fig_leak_test_4}
+\end{figure}
+
 
 \subsection{Multiple Zone, Multiple Mesh Leakage (\texorpdfstring{\textct{zone\_shape\_2}}{zone\_shape\_2})}
 \label{zone_shape_2}
