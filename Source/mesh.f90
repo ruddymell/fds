@@ -15,69 +15,98 @@ IMPLICIT NONE
 
 TYPE MESH_TYPE
 
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: U  !< Velocity component at current time step. U(I,J,K) is \f$u_{ijk}^n\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: V  !< Velocity component at current time step. V(I,J,K) is \f$v_{ijk}^n\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: W  !< Velocity component at current time step. W(I,J,K) is \f$w_{ijk}^n\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: US !< Velocity component estimated at next time step. US(I,J,K) is \f$u_{ijk}^*\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: VS !< Velocity component estimated at next time step. VS(I,J,K) is \f$v_{ijk}^*\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: WS !< Velocity component estimated at next time step. WS(I,J,K) is \f$w_{ijk}^*\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DDDT    !< \f$\partial D/\partial t\f$ where \f$D\f$ is the divergence, D(I,J,K).
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: D       !< Divergence at current time step. D(I,J,K) is \f$D_{ijk}^n\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DS      !< Divergence estimate next time step. DS(I,J,K) is \f$D_{ijk}^*\f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: H       !< H(I,J,K) is \f$ \tilde{p}_{ijk}/\rho_{ijk} + |\mathbf{u}|^2_{ijk}/2 \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: HS      !< H estimated at next tine step.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: H_PRIME !< Experimental pressure correction.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: KRES    !< Resolved kinetic energy, \f$ |\mathbf{u}|^2_{ijk}/2 \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVX     !< Momentum equation flux terms, \f$ F_{{\rm A},x,ijk} \f$. 
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVY     !< Momentum equation flux terms, \f$ F_{{\rm A},y,ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVZ     !< Momentum equation flux terms, \f$ F_{{\rm A},z,ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVX_B   !< Momentum equation flux terms, \f$ F_{{\rm B},x,ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVY_B   !< Momentum equation flux terms, \f$ F_{{\rm B},y,ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVZ_B   !< Momentum equation flux terms, \f$ F_{{\rm B},z,ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RHO     !< Density (kg/m3) at current time step. RHO(I,J,K) is \f$ \rho_{ijk}^n \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RHOS    !< Density (kg/m3) at next time step. RHOS(I,J,K) is \f$ \rho_{ijk}^* \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: MU      !< Turbulent viscosity (kg/m/s).
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: MU_DNS  !< Laminar viscosity (kg/m/s).
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: TMP     !< Gas temperature (K). TMP(I,J,K) is \f$ T_{ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: Q       !< Heat release rate per unit volume, \f$ \dot{q}_{ijk}''' \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: KAPPA_GAS !< Radiation absorption coefficient by gas, \f$ \kappa_{ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: CHI_R   !< Radiative fraction, \f$ \chi_{{\rm r},ijk} \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: QR      !< Radiation source term, \f$ -\nabla \cdot \dot{\mathbf{q}}_{\rm r}'' \f$.
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: QR_W    !< Radiation source term, particles and droplets.
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: U  !< Velocity component at current time step, \f$u_{ijk}^n\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: V  !< Velocity component at current time step, \f$v_{ijk}^n\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: W  !< Velocity component at current time step, \f$w_{ijk}^n\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: US !< Velocity component estimated at next time step, \f$u_{ijk}^*\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: VS !< Velocity component estimated at next time step, \f$v_{ijk}^*\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: WS !< Velocity component estimated at next time step, \f$w_{ijk}^*\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DDDT    !< \f$(\partial D/\partial t)_{ijk}\f$ where \f$D_{ijk}\f$ is the divergence
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: D       !< Divergence at current time step, \f$D_{ijk}^n\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DS      !< Divergence estimate next time step, \f$D_{ijk}^*\f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: H       !< \f$ \tilde{p}_{ijk}/\rho_{ijk} + |\mathbf{u}|^2_{ijk}/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: HS      !< H estimated at next time step
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: H_PRIME !< Experimental pressure correction
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: KRES    !< Resolved kinetic energy, \f$ |\mathbf{u}|^2_{ijk}/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVX     !< Momentum equation flux terms, \f$ F_{{\rm A},x,ijk}+F_{{\rm B},x,ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVY     !< Momentum equation flux terms, \f$ F_{{\rm A},y,ijk}+F_{{\rm B},y,ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVZ     !< Momentum equation flux terms, \f$ F_{{\rm A},z,ijk}+F_{{\rm B},z,ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVX_B   !< Momentum equation flux terms, \f$ F_{{\rm B},x,ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVY_B   !< Momentum equation flux terms, \f$ F_{{\rm B},y,ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FVZ_B   !< Momentum equation flux terms, \f$ F_{{\rm B},z,ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RHO     !< Density (kg/m3) at current time step, \f$ \rho_{ijk}^n \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RHOS    !< Density (kg/m3) at next time step, \f$ \rho_{ijk}^* \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: MU      !< Turbulent viscosity (kg/m/s), \f$ \mu_{{\rm t},ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: MU_DNS  !< Laminar viscosity (kg/m/s)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: TMP     !< Gas temperature, \f$ T_{ijk} \f$ (K)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: Q       !< Heat release rate per unit volume, \f$ \dot{q}_{ijk}''' \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: KAPPA_GAS !< Radiation absorption coefficient by gas, \f$ \kappa_{ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: CHI_R   !< Radiative fraction, \f$ \chi_{{\rm r},ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: QR      !< Radiation source term, \f$ -\nabla \cdot \dot{\mathbf{q}}_{\rm r}'' \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: QR_W    !< Radiation source term, particles and droplets
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: UII     !< Integrated intensity, \f$ U_{ijk}=\sum_{l=1}^N I_{ijk}^l\delta\Omega^l\f$
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RSUM
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: D_SOURCE
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: U_OLD
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: V_OLD
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: W_OLD
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: CSD2
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: CHEM_SUBIT
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: MIX_TIME
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: STRAIN_RATE
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: D_Z_MAX
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: Q_DOT_PPP_S
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: PR_T
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: TMP_FLAME
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: RSUM    !< \f$ R_0 \sum_\alpha Z_{\alpha,ijk}/W_\alpha \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: D_SOURCE!< Source terms in the expression for the divergence
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: U_OLD   !< Value of \f$ u_{ijk} \f$ at the previous time step, used for output only
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: V_OLD   !< Value of \f$ v_{ijk} \f$ at the previous time step, used for output only
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: W_OLD   !< Value of \f$ w_{ijk} \f$ at the previous time step, used for output only
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: CSD2    !< \f$ C_s \Delta^2 \f$ in Smagorinsky turbulence expression
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: CHEM_SUBIT  !< Number of chemistry sub-iterations
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: MIX_TIME    !< Mixing-controlled combustion reaction time (s)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: STRAIN_RATE !< Strain rate \f$ |S|_{ijk} \f$ (1/s)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: D_Z_MAX     !< \f$ \max D_\alpha \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: Q_DOT_PPP_S !< Heat release rate per unit volume in 3D pyrolysis model
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: PR_T        !< Turbulent Prandtl number (experimental)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: TMP_FLAME   !< Flame temperature (K) (experimental)
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: FLAME_INDEX
 
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: ZZ,ZZS,REAC_SOURCE_TERM,DEL_RHO_D_DEL_Z,FX,FY,FZ, &
-                                                SCALAR_WORK1,SCALAR_WORK2,SCALAR_WORK3,SCALAR_WORK4, &
-                                                Q_REAC,AVG_DROP_DEN,AVG_DROP_TMP,AVG_DROP_RAD,AVG_DROP_AREA, &
-                                                M_DOT_PPP,M_DOT_G_PPP_S,RHO_ZZ_G_S,TRI_COR, &
-                                                ADV_FX,ADV_FY,ADV_FZ,DIF_FX,DIF_FY,DIF_FZ,DIF_FXS,DIF_FYS,DIF_FZS
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: ZZ               !< Lumped species, current time step, \f$ Z_{\alpha,ijk}^n \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: ZZS              !< Lumped species, next time step, \f$ Z_{\alpha,ijk}^* \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: REAC_SOURCE_TERM !< \f$ \dot{m}_{\alpha,ijk}''' \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: DEL_RHO_D_DEL_Z  !< \f$ (\nabla \cdot \rho D_\alpha \nabla Z_\alpha)_{ijk} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: FX               !< \f$ \rho Z_{\alpha,ijk} \f$ at \f$ x \f$ face of cell
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: FY               !< \f$ \rho Z_{\alpha,ijk} \f$ at \f$ y \f$ face of cell
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: FZ               !< \f$ \rho Z_{\alpha,ijk} \f$ at \f$ z \f$ face of cell
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: Q_REAC           !< \f$ \dot{q}_{ijk}''' \f$ for a specified reaction
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: AVG_DROP_DEN     !< Droplet mass per unit volume for a certain droplet type
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: AVG_DROP_TMP     !< Average temperature for a certain droplet type
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: AVG_DROP_RAD     !< Average radius for a certain droplet type
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: AVG_DROP_AREA    !< Average area for a certain droplet type
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: M_DOT_PPP        !< Mass source term, \f$ \dot{m}_{\alpha,ijk}''' \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: M_DOT_G_PPP_S    !< Mass source term, \f$ \dot{m}_{\alpha,ijk}''' \f$, 3D solid
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: RHO_ZZ_G_S
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: TRI_COR
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: ADV_FX
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: ADV_FY
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: ADV_FZ
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: DIF_FX
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: DIF_FY
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: DIF_FZ
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: DIF_FXS
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: DIF_FYS
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: DIF_FZS
+
    REAL(EB), ALLOCATABLE, DIMENSION(:) :: U_EDGE_Y,U_EDGE_Z,V_EDGE_X,V_EDGE_Z,W_EDGE_X,W_EDGE_Y
 
    REAL(EB) :: POIS_PTB,POIS_ERR,LAPLACE_PTB,LAPLACE_ERR
    REAL(EB), ALLOCATABLE, DIMENSION(:) :: SAVE1,SAVE2,WORK
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: PRHS
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: PRHS !< Right hand side of Poisson (pressure) equation
    REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: BXS,BXF,BYS,BYF,BZS,BZF, BXST,BXFT,BYST,BYFT,BZST,BZFT
    INTEGER :: LSAVE,LWORK,LBC,MBC,NBC,LBC2,MBC2,NBC2,ITRN,JTRN,KTRN,IPS
-   REAL(EB), ALLOCATABLE, DIMENSION(:) :: P_0,RHO_0,TMP_0,D_PBAR_DT,D_PBAR_DT_S,U_LEAK,U_DUCT
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: PBAR,PBAR_S,R_PBAR
-   INTEGER, ALLOCATABLE, DIMENSION(:,:,:) :: PRESSURE_ZONE
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: WORK1,WORK2,WORK3,WORK4,WORK5,WORK6,WORK7,WORK8,WORK9
-   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DCOR
-   INTEGER, ALLOCATABLE, DIMENSION(:,:,:) :: IWORK1
+
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: P_0         !< Ambient pressure profile, \f$ \overline{p}_0(z) \f$ (Pa)
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RHO_0       !< Ambient density profile, \f$ \overline{\rho}_0(z) \f$ (kg/m\f$^3\f$)
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: TMP_0       !< Ambient temperature profile, \f$ \overline{T}_0(z) \f$ (K)
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: D_PBAR_DT   !< \f$ (\partial \overline{p}_m/\partial t)^n \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: D_PBAR_DT_S !< \f$ (\partial \overline{p}_m/\partial t)^* \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: U_LEAK
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: U_DUCT
+
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: PBAR      !< Background pressure, current, \f$ \overline{p}_m^n(z,t) \f$ (Pa)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: PBAR_S    !< Background pressure, estimated, \f$ \overline{p}_m^*(z,t) \f$ (Pa)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: R_PBAR    !< \f$ 1/\overline{p}_m(z,t) \f$
+   INTEGER, ALLOCATABLE, DIMENSION(:,:,:) :: PRESSURE_ZONE !< Index of the pressure zone for cell (I,J,K)
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: DCOR !< Divergence correction term, \f$ \nabla \cdot (\bar{\mathbf{u}}-\mathbf{u}) \f$
 
    !! Laplace solve, sparse LU
 
@@ -85,15 +114,20 @@ TYPE MESH_TYPE
    !INTEGER, ALLOCATABLE, DIMENSION(:) :: A_ROW_INDEX,A_COLUMNS
    !REAL(EB), ALLOCATABLE, DIMENSION(:) :: A_VALUES
 
-   REAL(EB),     ALLOCATABLE, DIMENSION(:,:,:) :: PWORK1,PWORK2,PWORK3,PWORK4
-   COMPLEX(DPC), ALLOCATABLE, DIMENSION(:,:,:) :: PWORK5,PWORK6,PWORK7,PWORK8
+   ! Work arrays
 
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: SCALAR_WORK1
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: SCALAR_WORK2
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: SCALAR_WORK3
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: SCALAR_WORK4
+   REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: WORK1,WORK2,WORK3,WORK4,WORK5,WORK6,WORK7,WORK8,WORK9
+   INTEGER, ALLOCATABLE, DIMENSION(:,:,:) :: IWORK1
+   REAL(EB),     ALLOCATABLE, DIMENSION(:,:,:) :: PWORK1,PWORK2,PWORK3,PWORK4
+   COMPLEX(EB),  ALLOCATABLE, DIMENSION(:,:,:) :: PWORK5,PWORK6,PWORK7,PWORK8
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: TURB_WORK1,TURB_WORK2,TURB_WORK3,TURB_WORK4
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: TURB_WORK5,TURB_WORK6,TURB_WORK7,TURB_WORK8
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: TURB_WORK9,TURB_WORK10
-
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:) :: IBM_SAVE1,IBM_SAVE2,IBM_SAVE3,IBM_SAVE4,IBM_SAVE5,IBM_SAVE6
-
    REAL(EB), ALLOCATABLE, DIMENSION(:) :: WALL_WORK1,WALL_WORK2,FACE_WORK1,FACE_WORK2,FACE_WORK3
    REAL(FB), ALLOCATABLE, DIMENSION(:,:,:,:) :: QQ, QQ2
    REAL(FB), ALLOCATABLE, DIMENSION(:,:) :: PP,PPN,BNDF_TIME_INTEGRAL
@@ -112,31 +146,93 @@ TYPE MESH_TYPE
    REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: TAU_E,OME_E
 
    INTEGER :: MESH_LEVEL,LBC_EMB,MBC_EMB,NBC_EMB
-   INTEGER :: IBAR,JBAR,KBAR,IBM1,JBM1,KBM1,IBP1,JBP1,KBP1
-   INTEGER :: N_NEIGHBORING_MESHES
-   INTEGER, ALLOCATABLE, DIMENSION(:) :: NEIGHBORING_MESH
-   INTEGER, ALLOCATABLE, DIMENSION(:) :: RGB
-   REAL(EB) :: DXI,DETA,DZETA,RDXI,RDETA,RDZETA, &
-      DXMIN,DXMAX,DYMIN,DYMAX,DZMIN,DZMAX, &
-      XS,XF,YS,YF,ZS,ZF,RDXINT,RDYINT,RDZINT,CELL_SIZE
-   REAL(EB), ALLOCATABLE, DIMENSION(:) :: R,RC,X,Y,Z,XC,YC,ZC,HX,HY,HZ, &
-            DX,RDX,DXN,RDXN,DY,RDY,DYN,RDYN,DZ,RDZ,DZN,RDZN, &
-            CELLSI,CELLSJ,CELLSK,RRN
-   REAL(FB), ALLOCATABLE, DIMENSION(:) :: XPLT,YPLT,ZPLT
+   INTEGER :: IBAR !< Number of cells in the \f$ x \f$ direction, \f$ I \f$
+   INTEGER :: JBAR !< Number of cells in the \f$ y \f$ direction, \f$ J \f$
+   INTEGER :: KBAR !< Number of cells in the \f$ z \f$ direction, \f$ K \f$
+   INTEGER :: IBM1 !< IBAR minus 1
+   INTEGER :: JBM1 !< JBAR minus 1
+   INTEGER :: KBM1 !< KBAR minus 1
+   INTEGER :: IBP1 !< IBAR plus 1
+   INTEGER :: JBP1 !< JBAR plus 1
+   INTEGER :: KBP1 !< KBAR plus 1
+   INTEGER :: N_NEIGHBORING_MESHES !< Number of meshing abutting the current one
+   INTEGER, ALLOCATABLE, DIMENSION(:) :: NEIGHBORING_MESH  !< Array listing the indices of neighboring meshes
+   INTEGER, ALLOCATABLE, DIMENSION(:) :: RGB               !< Color indices of the mesh for Smokeview
 
-   INTEGER :: N_OBST=0
-   TYPE(OBSTRUCTION_TYPE), ALLOCATABLE, DIMENSION(:) :: OBSTRUCTION
+   ! Mesh coordinate variables
 
-   INTEGER :: N_VENT=0
-   TYPE(VENTS_TYPE), ALLOCATABLE, DIMENSION(:) :: VENTS
+   REAL(EB) :: DXI                               !< \f$ \delta \xi = (x_I-x_0)/I \f$
+   REAL(EB) :: DETA                              !< \f$ \delta \eta = (y_J-y_0)/J \f$
+   REAL(EB) :: DZETA                             !< \f$ \delta \zeta = (z_K-z_0)/K \f$
+   REAL(EB) :: RDXI                              !< \f$ 1/ \delta \xi \f$
+   REAL(EB) :: RDETA                             !< \f$ 1/ \delta \eta \f$
+   REAL(EB) :: RDZETA                            !< \f$ 1/ \delta \zeta \f$
+   REAL(EB) :: DXMIN                             !< \f$ \min_i \delta x_i \f$
+   REAL(EB) :: DXMAX                             !< \f$ \max_i \delta x_i \f$
+   REAL(EB) :: DYMIN                             !< \f$ \min_j \delta y_j \f$
+   REAL(EB) :: DYMAX                             !< \f$ \max_j \delta y_j \f$
+   REAL(EB) :: DZMIN                             !< \f$ \min_k \delta z_k \f$
+   REAL(EB) :: DZMAX                             !< \f$ \max_k \delta z_k \f$
+   REAL(EB) :: XS                                !< Lower extent of mesh x coordinate, \f$ x_0 \f$
+   REAL(EB) :: XF                                !< Upper extent of mesh x coordinate, \f$ x_I \f$
+   REAL(EB) :: YS                                !< Lower extent of mesh y coordinate, \f$ y_0 \f$
+   REAL(EB) :: YF                                !< Upper extent of mesh y coordinate, \f$ y_J \f$
+   REAL(EB) :: ZS                                !< Lower extent of mesh z coordinate, \f$ z_0 \f$
+   REAL(EB) :: ZF                                !< Upper extent of mesh z coordinate, \f$ z_K \f$
+   REAL(EB) :: RDXINT                            !< \f$ 500/\delta \xi \f$
+   REAL(EB) :: RDYINT                            !< \f$ 500/\delta \eta \f$
+   REAL(EB) :: RDZINT                            !< \f$ 500/\delta \zeta \f$
+   REAL(EB) :: CELL_SIZE                         !< Approximate cell size, \f$ (\delta\xi\,\delta\eta\,\delta\zeta)^{1/3} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: R      !< Radial coordinate, \f$ r_i \f$, for CYLINDRICAL geometry
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RC     !< Radial coordinate, cell center, \f$ (r_i+r_{i-1})/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RRN    !< \f$ 2/(r_i+r_{i-1}) \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: X      !< Position of forward x face of cell (I,J,K), \f$ x_i \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: Y      !< Position of forward y face of cell (I,J,K), \f$ y_j \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: Z      !< Position of forward z face of cell (I,J,K), \f$ z_k \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: XC     !< x coordinate of cell center, \f$ (x_i+x_{i-1})/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: YC     !< y coordinate of cell center, \f$ (y_j+y_{j-1})/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: ZC     !< z coordinate of cell center, \f$ (z_k+z_{k-1})/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: HX     !< Grid stretch factor, \f$ (x_i-x_{i-1})/\delta \xi \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: HY     !< Grid stretch factor, \f$ (y_j-y_{j-1})/\delta \eta \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: HZ     !< Grid stretch factor, \f$ (z_k-z_{k-1})/\delta \zeta \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: DX     !< \f$ \delta x_i = x_i-x_{i-1} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: DY     !< \f$ \delta y_j = y_j-y_{j-1} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: DZ     !< \f$ \delta z_k = z_k-z_{k-1} \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RDX    !< \f$ 1/\delta x_i \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RDY    !< \f$ 1/\delta y_j \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RDZ    !< \f$ 1/\delta z_k \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: DXN    !< \f$ (x_i+x_{i+1})/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: DYN    !< \f$ (y_j+y_{j+1})/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: DZN    !< \f$ (z_k+z_{k+1})/2 \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RDXN   !< \f$ 2/(x_i+x_{i+1}) \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RDYN   !< \f$ 2/(y_j+y_{j+1}) \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: RDZN   !< \f$ 2/(z_k+z_{k+1}) \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: CELLSI !< Array used to locate the cell index of \f$ x \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: CELLSJ !< Array used to locate the cell index of \f$ y \f$
+   REAL(EB), ALLOCATABLE, DIMENSION(:) :: CELLSK !< Array used to locate the cell index of \f$ z \f$
+   REAL(FB), ALLOCATABLE, DIMENSION(:) :: XPLT   !< 4 byte real array holding \f$ x \f$ mesh coordinates
+   REAL(FB), ALLOCATABLE, DIMENSION(:) :: YPLT   !< 4 byte real array holding \f$ y \f$ mesh coordinates
+   REAL(FB), ALLOCATABLE, DIMENSION(:) :: ZPLT   !< 4 byte real array holding \f$ z \f$ mesh coordinates
 
-   INTEGER, ALLOCATABLE, DIMENSION(:,:,:) :: CELL_INDEX
-   INTEGER, ALLOCATABLE, DIMENSION(:) :: I_CELL,J_CELL,K_CELL,OBST_INDEX_C
+   INTEGER :: N_OBST=0                                              !< Number of obstructions in the mesh
+   TYPE(OBSTRUCTION_TYPE), ALLOCATABLE, DIMENSION(:) :: OBSTRUCTION !< Derived type variable holding obstruction information
 
-   INTEGER, ALLOCATABLE, DIMENSION(:,:) :: WALL_INDEX,WALL_INDEX_HT3D
-   LOGICAL, ALLOCATABLE, DIMENSION(:) :: SOLID,EXTERIOR,CONNECTED_MESH
-   LOGICAL, ALLOCATABLE, DIMENSION(:,:,:) :: MEAN_FORCING_CELL
-   INTEGER, ALLOCATABLE, DIMENSION(:) :: K_MEAN_FORCING
+   INTEGER :: N_VENT=0                                              !< Number of vents in the mesh
+   TYPE(VENTS_TYPE), ALLOCATABLE, DIMENSION(:) :: VENTS             !< Derived type variable holding vent information
+
+   INTEGER, ALLOCATABLE, DIMENSION(:,:,:) :: CELL_INDEX             !< Unique integer identifier for grid cell (I,J,K)
+   INTEGER, ALLOCATABLE, DIMENSION(:) :: I_CELL                     !< I index of cell with identifier CELL_INDEX(I,J,K)
+   INTEGER, ALLOCATABLE, DIMENSION(:) :: J_CELL                     !< J index of cell with identifier CELL_INDEX(I,J,K)
+   INTEGER, ALLOCATABLE, DIMENSION(:) :: K_CELL                     !< K index of cell with identifier CELL_INDEX(I,J,K)
+   INTEGER, ALLOCATABLE, DIMENSION(:) :: OBST_INDEX_C               !< Index of obstruction occupying cell with CELL_INDEX(I,J,K)
+
+   INTEGER, ALLOCATABLE, DIMENSION(:,:) :: WALL_INDEX               !< Wall index of 6 faces of cell with CELL_INDEX(I,J,K)
+   INTEGER, ALLOCATABLE, DIMENSION(:,:) :: WALL_INDEX_HT3D
+   LOGICAL, ALLOCATABLE, DIMENSION(:) :: SOLID                      !< T or F if cell with CELL_INDEX(I,J,K) is solid
+   LOGICAL, ALLOCATABLE, DIMENSION(:) :: EXTERIOR                   !< T or F if cell with CELL_INDEX(I,J,K) is outside mesh
+   LOGICAL, ALLOCATABLE, DIMENSION(:) :: CONNECTED_MESH             !< T or F if cell is within another mesh
+   LOGICAL, ALLOCATABLE, DIMENSION(:,:,:) :: MEAN_FORCING_CELL      !< T or F if cell undergoes mean forcing wind
+   INTEGER, ALLOCATABLE, DIMENSION(:) :: K_MEAN_FORCING             !< Vertical index of master mean forcing wind profile
 
    INTEGER :: NREGFACE_H(MAX_DIM)
    TYPE(IBM_REGFACE_TYPE), ALLOCATABLE, DIMENSION(:) :: REGFACE_IAXIS_H, &
@@ -153,10 +249,7 @@ TYPE MESH_TYPE
    TYPE(IBM_CUTFACE_TYPE),   ALLOCATABLE, DIMENSION(:) :: CUT_FACE
    TYPE(IBM_CUTCELL_TYPE),   ALLOCATABLE, DIMENSION(:) :: CUT_CELL
 
-   INTEGER :: IBM_NREGFACE_Z(MAX_DIM), IBM_NBBREGFACE_Z(MAX_DIM), IBM_NREGFACE_H(MAX_DIM)
-   TYPE(IBM_REGFACE_TYPE), ALLOCATABLE, DIMENSION(:) :: IBM_REGFACE_IAXIS_H, &
-                                                        IBM_REGFACE_JAXIS_H, &
-                                                        IBM_REGFACE_KAXIS_H
+   INTEGER :: IBM_NREGFACE_Z(MAX_DIM), IBM_NBBREGFACE_Z(MAX_DIM)
    TYPE(IBM_REGFACEZ_TYPE), ALLOCATABLE, DIMENSION(:) :: IBM_REGFACE_IAXIS_Z, &
                                                          IBM_REGFACE_JAXIS_Z, &
                                                          IBM_REGFACE_KAXIS_Z
@@ -165,8 +258,6 @@ TYPE MESH_TYPE
    TYPE(IBM_RCFACE_LST_TYPE), ALLOCATABLE, DIMENSION(:) :: IBM_RCFACE_Z
    INTEGER :: IBM_NEXIMFACE_MESH=0, IBM_NBBEXIMFACE_MESH=0
    TYPE(IBM_EXIMFACE_TYPE), ALLOCATABLE, DIMENSION(:) :: IBM_EXIM_FACE
-   INTEGER :: IBM_NRCFACE_VEL=0,IBM_NRCFACE_VEL_CC=0
-   TYPE(IBM_RCVEL_TYPE), ALLOCATABLE, DIMENSION(:) :: IBM_RCFACE_VEL
    REAL(EB), ALLOCATABLE, DIMENSION(:,:,:,:) :: RHO_ZZN
 
    ! CFACE to be used in conjunction with solid side solvers:
@@ -184,7 +275,7 @@ TYPE MESH_TYPE
    REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: GEOM_ZMAX
 
    ! Arrays for special cut-cells:
-   INTEGER :: N_SPCELL=0
+   INTEGER :: N_SPCELL=0, N_SPCELL_CF=0
    INTEGER, ALLOCATABLE, DIMENSION(:,:) :: SPCELL_LIST
 
    !---------------------- END: CC_IBM mesh Arrays ------------------------------------------
@@ -279,7 +370,7 @@ INTEGER, POINTER, DIMENSION(:,:,:) :: IWORK1
 !REAL(EB), POINTER, DIMENSION(:) :: A_VALUES
 
 REAL(EB),     POINTER, DIMENSION(:,:,:) :: PWORK1,PWORK2,PWORK3,PWORK4
-COMPLEX(DPC), POINTER, DIMENSION(:,:,:) :: PWORK5,PWORK6,PWORK7,PWORK8
+COMPLEX(EB),  POINTER, DIMENSION(:,:,:) :: PWORK5,PWORK6,PWORK7,PWORK8
 
 REAL(EB), POINTER, DIMENSION(:,:,:) :: TURB_WORK1,TURB_WORK2,TURB_WORK3,TURB_WORK4
 REAL(EB), POINTER, DIMENSION(:,:,:) :: TURB_WORK5,TURB_WORK6,TURB_WORK7,TURB_WORK8
@@ -329,7 +420,8 @@ TYPE(IBM_REGFACEZ_TYPE),  POINTER, DIMENSION(:) :: IBM_REGFACE_IAXIS_Z, &
                                                    IBM_REGFACE_JAXIS_Z, &
                                                    IBM_REGFACE_KAXIS_Z
 TYPE(IBM_RCFACE_LST_TYPE), POINTER, DIMENSION(:):: IBM_RCFACE_Z
-TYPE(IBM_EXIMFACE_TYPE), POINTER, DIMENSION(:) :: IBM_EXIM_FACE
+TYPE(IBM_EXIMFACE_TYPE), POINTER, DIMENSION(:)  :: IBM_EXIM_FACE
+TYPE(IBM_RCEDGE_TYPE), POINTER, DIMENSION(:):: IBM_RCEDGE
 TYPE(CFACE_TYPE), POINTER, DIMENSION(:) :: CFACE
 TYPE(RAD_CFACE_TYPE), POINTER, DIMENSION(:) :: RAD_CFACE
 REAL(EB), POINTER, DIMENSION(:,:) :: GEOM_ZMAX
@@ -689,6 +781,7 @@ IBM_REGFACE_KAXIS_Z=>M%IBM_REGFACE_KAXIS_Z
 IBM_RCFACE_Z=>M%IBM_RCFACE_Z
 IBM_NEXIMFACE_MESH=>M%IBM_NEXIMFACE_MESH
 IBM_EXIM_FACE=>M%IBM_EXIM_FACE
+IBM_RCEDGE=>M%IBM_RCEDGE
 CFACE=>M%CFACE
 RAD_CFACE=>M%RAD_CFACE
 GEOM_ZMAX=>M%GEOM_ZMAX

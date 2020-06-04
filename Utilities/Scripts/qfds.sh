@@ -97,6 +97,7 @@ function usage {
     exit
   fi
   echo "Other options:"
+  echo " -b email_address - send an email to email_address when jobs starts, aborts and finishes"
   echo " -c file - loads Intel Trace Collector configuration file "
   echo " -C   - use modules currently loaded rather than modules loaded when fds was built."
   echo " -d dir - specify directory where the case is found [default: .]"
@@ -125,6 +126,7 @@ function usage {
   echo " -V   - show command line used to invoke qfds.sh"
   echo " -w time - walltime, where time is hh:mm for PBS and dd-hh:mm:ss for SLURM. [default: $walltime]"
   echo ""
+  echo " Resource manager: $RESOURCE_MANAGER"
   exit
 }
 
@@ -147,6 +149,14 @@ fi
 #*** determine platform
 
 platform="linux"
+if [ "$WINDIR" != "" ]; then
+  platform="win"
+  if [ "$I_MPI_ROOT" != "" ]; then
+    echo $I_MPI_ROOT | sed 's/\\/\//g' -  | sed 's/C:/\/C/g' -  > var.out.$$
+    I_MPI_ROOT=`head -1 var.out.$$`
+    rm var.out.$$
+  fi
+fi
 if [ "`uname`" == "Darwin" ] ; then
   platform="osx"
 fi
@@ -157,7 +167,11 @@ if [ "$platform" == "osx" ]; then
   queue=none
   ncores=`system_profiler SPHardwareDataType|grep Cores|awk -F' ' '{print $5}'`
 else
-  queue=batch
+  if [ "$platform" == "win" ]; then
+    queue=terminal
+  else
+    queue=batch
+  fi
   ncores=`grep processor /proc/cpuinfo | wc -l`
 fi
 if [ "$NCORES_COMPUTENODE" == "" ]; then
@@ -204,6 +218,7 @@ iinspectargs=
 vtuneresdir=
 vtuneargs=
 use_config=""
+EMAIL=
 
 # determine which resource manager is running (or none)
 
@@ -264,7 +279,7 @@ commandline=`echo $* | sed 's/-V//' | sed 's/-v//'`
 
 #*** read in parameters from command line
 
-while getopts 'Aa:c:Cd:D:e:Ef:hHiIj:Lm:Mn:No:O:p:Pq:rsStT:vVw:x:' OPTION
+while getopts 'Aa:b:c:Cd:D:e:Ef:hHiIj:Lm:Mn:No:O:p:Pq:rsStT:vVw:x:' OPTION
 do
 case $OPTION  in
   A) # used by timing scripts to identify benchmark cases
@@ -273,6 +288,9 @@ case $OPTION  in
   a)
    vtuneresdir="$OPTARG"
    use_vtune=1
+   ;;
+  b)
+   EMAIL="$OPTARG"
    ;;
   c)
    use_config="$OPTARG"
@@ -629,9 +647,9 @@ if [ "$use_intel_mpi" == "1" ]; then
       ABORTRUN=y
     else
       MPIRUNEXE=$I_MPI_ROOT/intel64/bin/mpiexec
-      if [ ! -e $MPIRUNEXE ]; then
-        MPIRUNEXE=$I_MPI_ROOT/bin/mpiexec
-        if [ ! -e $MPIRUNEXE ]; then
+      if [ ! -e "$MPIRUNEXE" ]; then
+        MPIRUNEXE="$I_MPI_ROOT/bin/mpiexec"
+        if [ ! -e "$MPIRUNEXE" ]; then
           echo "Intel mpiexec not found at:"
           echo "$I_MPI_ROOT/intel64/bin/mpiexec or"
           echo "$I_MPI_ROOT/bin/mpiexec"
@@ -746,11 +764,16 @@ if [ "$queue" == "none" ]; then
   USE_BACKGROUND=1
 else
 
+  if [ "$queue" == "terminal" ]; then
+    QSUB=
+    MPIRUN=
+  fi
+
 #*** setup for SLURM (alternative to torque)
 
   if [ "$RESOURCE_MANAGER" == "SLURM" ]; then
     QSUB="sbatch -p $queue --ignore-pbs"
-    MPIRUN="srun -N $nodes -n $n_mpi_processes --ntasks-per-node $ppn"
+    MPIRUN="srun -N $nodes -n $n_mpi_processes --ntasks-per-node $n_mpi_processes_per_node"
   fi
 fi
 
@@ -782,8 +805,14 @@ if [ "$queue" != "none" ]; then
 #SBATCH -n $n_mpi_processes
 #SBATCH --nodes=$nodes
 #SBATCH --cpus-per-task=$n_openmp_threads
-#SBATCH --ntasks-per-node=$ppn
+#SBATCH --ntasks-per-node=$n_mpi_processes_per_node
 EOF
+if [ "$EMAIL" != "" ]; then
+    cat << EOF >> $scriptfile
+#SBATCH --mail-user=$EMAIL
+#SBATCH --mail-type=ALL
+EOF
+fi
 
 if [ "$benchmark" == "yes" ]; then
 cat << EOF >> $scriptfile
@@ -808,6 +837,12 @@ EOF
 #PBS -o $outlog
 #PBS -l nodes=$nodes:ppn=$ppn
 EOF
+if [ "$EMAIL" != "" ]; then
+    cat << EOF >> $scriptfile
+#PBS -m abe
+#PBS -M $EMAIL
+EOF
+fi
     if [ "$walltimestring_pbs" != "" ]; then
       cat << EOF >> $scriptfile
 #PBS $walltimestring_pbs

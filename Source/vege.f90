@@ -1,8 +1,8 @@
+!> \brief Level set model of fire spread across terrain
+
 MODULE VEGE
 
-! Level set model of fire spread across terrain.
-
-USE COMP_FUNCTIONS
+USE COMP_FUNCTIONS, ONLY: CURRENT_TIME
 USE PRECISION_PARAMETERS
 USE GLOBAL_CONSTANTS
 USE MESH_POINTERS
@@ -14,7 +14,7 @@ PUBLIC INITIALIZE_LEVEL_SET_FIRESPREAD_1,INITIALIZE_LEVEL_SET_FIRESPREAD_2,LEVEL
        BNDRY_VEG_MASS_ENERGY_TRANSFER,RAISED_VEG_MASS_ENERGY_TRANSFER
 INTEGER :: IZERO
 INTEGER  :: LIMITER_LS
-REAL(EB) :: B_ROTH,BETA_OP_ROTH,C_ROTH,E_ROTH
+REAL(EB) :: B_ROTH,BETA_OP_ROTH,C_ROTH,E_ROTH,T_NOW
 REAL(EB), POINTER, DIMENSION(:,:) :: PHI_LS_P
 REAL(EB), PARAMETER :: PHI_LS_MIN=-1._EB, PHI_LS_MAX=1._EB
 
@@ -53,11 +53,13 @@ REAL(EB) :: DETA_VEG,ETA_H,ETAFM_VEG,ETAFP_VEG,VEG_TMP_FACE
 REAL(EB) :: QCONF_L,Q_FOR_DRYING,Q_UPTO_DRYING,Q_VEG_MOIST,Q_VEG_VOLIT,QNET_VEG,Q_FOR_VOLIT,Q_VOLIT,Q_UPTO_VOLIT
 REAL(EB) :: C_DRAG,CM,CN,NUSS_HILPERT_CYL_FORCEDCONV,NUSS_MORGAN_CYL_FREECONV,HCON_VEG_FORCED,HCON_VEG_FREE, &
             LENGTH_SCALE,RAYLEIGH_NUM,ZGRIDCELL,ZGRIDCELL0,VEG_DRAG_RAMP_FCTR,VEG_DRAG_MIN
+REAL(EB) :: FUEL_VAPOR_MASS_FLUX,WATER_VAPOR_MASS_FLUX
 !LOGICAL  :: H_VERT_CYLINDER_LAMINAR,H_CYLINDER_RE
 
 !INTEGER  :: IC,II,IOR,JJ,KK,IW_CELL
 
 TYPE (WALL_TYPE),    POINTER :: WC =>NULL()
+TYPE (ONE_D_M_AND_E_XFER_TYPE), POINTER :: ONE_D
 TYPE (SURFACE_TYPE), POINTER :: SF =>NULL()
 
 !TYPE (WALL_TYPE),    POINTER :: WC1 =>NULL() !to handle qrad on slopes
@@ -86,7 +88,9 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
   SF  => SURFACE(WC%SURF_INDEX)
 !
-  IF (.NOT. SF%VEGETATION) CYCLE VEG_WALL_CELL_LOOP
+  IF (.NOT. SF%WFDS_BF_VEG) CYCLE VEG_WALL_CELL_LOOP
+ 
+  ONE_D => WALL(IW)%ONE_D
 
   H_H2O_VEG = SF%VEG_H_H2O !J/kg
   H_PYR_VEG = SF%VEG_H_PYR !J/kg
@@ -95,10 +99,10 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
   CHAR_FCTR2 = 1._EB/CHAR_FCTR
 
 !Gas quantities 
-  IIG = WC%ONE_D%IIG
-  JJG = WC%ONE_D%JJG
-  KKG = WC%ONE_D%KKG
-  IF(SF%VEG_NO_BURN .OR. T <= DT_BC) WC%VEG_HEIGHT = SF%VEG_HEIGHT
+  IIG = ONE_D%IIG
+  JJG = ONE_D%JJG
+  KKG = ONE_D%KKG
+  IF(SF%VEG_NO_BURN .OR. T <= DT_BC) ONE_D%VEG_HEIGHT = SF%VEG_HEIGHT
   VEG_DRAG(IIG,JJG,0) = REAL(KKG,EB) !for terrain location in drag calc in velo.f90
 !if (nm==1 .and. iig==9 .and. jjg==5) print '(A,1x,1ES15.7,1I3,4ES15.7)','t,kkg,uvel k=1,2,3,4', &
 !                                                          t,kkg,u(9,5,1),u(9,5,2),u(9,5,3),u(9,5,4)
@@ -106,7 +110,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
 !-- Simple Drag implementation, assumes veg height is <= grid cell height.
 !   No Reynolds number dependence
-!VEG_DRAG(IIG,JJG,1) = SF%VEG_DRAG_INI*(SF%VEG_CHAR_FRACTION + CHAR_FCTR*WC%VEG_HEIGHT/SF%VEG_HEIGHT)
+!VEG_DRAG(IIG,JJG,1) = SF%VEG_DRAG_INI*(SF%VEG_CHAR_FRACTION + CHAR_FCTR*ONE_D%VEG_HEIGHT/SF%VEG_HEIGHT)
 !VEG_DRAG(IIG,JJG,1) = VEG_DRAG(IIG,JJG,1)*SF%VEG_HEIGHT/(Z(KKG)-Z(KKG-1))
 
 !-- Drag varies with height above the terrain according to the fraction of the grid cell occupied by veg
@@ -115,7 +119,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 !   KKG is the grid cell in the gas phase bordering the terrain (wall). For no terrain, KKG=1 along the "ground" 
 !   The Z() array is the height of the gas-phase cell. Z(0) = zmin for the current mesh 
 
-  BF_DRAG: IF (WC%VEG_HEIGHT > 0.0_EB) THEN
+  BF_DRAG: IF (ONE_D%VEG_HEIGHT > 0.0_EB) THEN
  
     VEG_DRAG_RAMP_FCTR = 1.0_EB
 !   IF (T-T_BEGIN <= 5.0_EB) VEG_DRAG_RAMP_FCTR = 0.20_EB*(T-T_BEGIN)
@@ -125,7 +129,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
       ZLOC_GAS_T = Z(KLOC_GAS)  -Z(KKG-1) !height above terrain of gas-phase grid cell top
       ZLOC_GAS_B = Z(KLOC_GAS-1)-Z(KKG-1) !height above terrain of gas-phase grid cell bottom
 
-      IF (ZLOC_GAS_T <= WC%VEG_HEIGHT) THEN !grid cell filled with veg
+      IF (ZLOC_GAS_T <= ONE_D%VEG_HEIGHT) THEN !grid cell filled with veg
         IF (.NOT. SF%VEG_UNIT_DRAG_COEFF) THEN
           TMP_G = TMP(IIG,JJG,KLOC_GAS)
           RHO_GAS  = RHO(IIG,JJG,KLOC_GAS)
@@ -143,7 +147,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
       ENDIF
 
-      IF (ZLOC_GAS_T >  WC%VEG_HEIGHT .AND. ZLOC_GAS_B < WC%VEG_HEIGHT) THEN !grid cell is partially filled with veg
+      IF (ZLOC_GAS_T >  ONE_D%VEG_HEIGHT .AND. ZLOC_GAS_B < ONE_D%VEG_HEIGHT) THEN !grid cell is partially filled with veg
         IF (.NOT. SF%VEG_UNIT_DRAG_COEFF) THEN
           TMP_G = TMP(IIG,JJG,KLOC_GAS)
           RHO_GAS  = RHO(IIG,JJG,KLOC_GAS)
@@ -158,7 +162,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
           C_DRAG = 1.0_EB
         ENDIF
         VEG_DRAG(IIG,JJG,KGRID+1)= &
-                   C_DRAG*SF%VEG_DRAG_INI*(WC%VEG_HEIGHT-ZLOC_GAS_B)*VEG_DRAG_RAMP_FCTR/(ZLOC_GAS_T-ZLOC_GAS_B)
+                   C_DRAG*SF%VEG_DRAG_INI*(ONE_D%VEG_HEIGHT-ZLOC_GAS_B)*VEG_DRAG_RAMP_FCTR/(ZLOC_GAS_T-ZLOC_GAS_B)
 
         IF (KGRID == 0) THEN !compute minimum drag based on user input
          VEG_DRAG_MIN = C_DRAG*SF%VEG_DRAG_INI*SF%VEG_POSTFIRE_DRAG_FCTR*VEG_DRAG_RAMP_FCTR* &
@@ -171,7 +175,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
     ENDDO
 
-! ELSE IF (WC%VEG_HEIGHT == 0.0_EB) THEN !veg is burned away, approx drag as SF%VEG_POSTFIRE_DRAG_FCTR*original
+! ELSE IF (ONE_D%VEG_HEIGHT == 0.0_EB) THEN !veg is burned away, approx drag as SF%VEG_POSTFIRE_DRAG_FCTR*original
 !   IF (.NOT. SF%VEG_UNIT_DRAG_COEFF) THEN
 !     TMP_G = TMP(IIG,JJG,KKG)
 !     RHO_GAS  = RHO(IIG,JJG,KKG)
@@ -200,16 +204,18 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
   MPA_MOIST_LOSS  = 0.0_EB
   MPA_VOLIT       = 0.0_EB
   MPA_CHAR_LOSS   = 0.0_EB
-  SF%VEG_DIVQNET_L          = 0.0_EB
-  SF%VEG_MOIST_FLUX_L       = 0.0_EB
-  SF%VEG_FUEL_FLUX_L        = 0.0_EB
-  WC%ONE_D%MASSFLUX(I_FUEL) = 0.0_EB 
-  WC%ONE_D%MASSFLUX_SPEC(I_FUEL) = 0.0_EB
+  SF%VEG_DIVQNET_L      = 0.0_EB
+  SF%VEG_MOIST_FLUX_L   = 0.0_EB
+  SF%VEG_FUEL_FLUX_L    = 0.0_EB
+  FUEL_VAPOR_MASS_FLUX  = 0.0_EB
+  WATER_VAPOR_MASS_FLUX = 0.0_EB
+! WC%ONE_D%MASSFLUX(I_FUEL) = 0.0_EB 
+! WC%ONE_D%MASSFLUX_SPEC(I_FUEL) = 0.0_EB
 
-  IF (I_WATER > 0) WC%ONE_D%MASSFLUX(I_WATER) = 0.0_EB
+  IF (I_WATER > 0) ONE_D%M_DOT_G_PP_ACTUAL(I_WATER) = 0.0_EB
 
-  IF(WC%VEG_HEIGHT == 0.0_EB) THEN
-    WC%ONE_D%TMP_F = MAX(TMP(IIG,JJG,KKG),TMPA) !Tveg=Tgas if veg is completely burned
+  IF(ONE_D%VEG_HEIGHT == 0.0_EB) THEN
+    ONE_D%TMP_F = MAX(TMP(IIG,JJG,KKG),TMPA) !Tveg=Tgas if veg is completely burned
     CYCLE VEG_WALL_CELL_LOOP
   ENDIF
 
@@ -230,7 +236,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
 ! Find the number of computational grids cells, in the grid for the veg, with burned veg 
 ! and the resulting height of the unburned veg. 
-! Vegetation burns downward from the top. Array index, IVEG_L for WC% quantities, starts at top of veg top.
+! Vegetation burns downward from the top. Array index, IVEG_L for ONE_D% quantities, starts at top of veg top.
 ! LBURN is the number of computational cells with burned veg. 
 ! LBURN=0 when no burning has occurred. 
 ! LBURN=2, for example, means the top two veg grid cells have burned
@@ -238,24 +244,24 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
   IF (SF%VEG_CHAR_OXIDATION) THEN
     DO IVEG_L = 1,NVEG_L 
-      IF(WC%ONE_D%VEG_CHARMASS_L(IVEG_L) <= MPA_CHAR_MIN .AND. WC%ONE_D%VEG_FUELMASS_L(IVEG_L) <= MPA_VEG_MIN ) LBURN = IVEG_L
+      IF(ONE_D%VEG_CHARMASS_L(IVEG_L) <= MPA_CHAR_MIN .AND. ONE_D%VEG_FUELMASS_L(IVEG_L) <= MPA_VEG_MIN ) LBURN = IVEG_L
     ENDDO
   ELSE
     DO IVEG_L = 1,NVEG_L 
-      IF(WC%ONE_D%VEG_FUELMASS_L(IVEG_L) <= MPA_VEG_MIN) LBURN = IVEG_L
+      IF(ONE_D%VEG_FUELMASS_L(IVEG_L) <= MPA_VEG_MIN) LBURN = IVEG_L
     ENDDO
   ENDIF
 
   LBURN_NEW          = LBURN
-  WC%VEG_HEIGHT      = REAL(NVEG_L-LBURN,EB)*DZVEG_L
+  ONE_D%VEG_HEIGHT      = REAL(NVEG_L-LBURN,EB)*DZVEG_L
   MPA_VOLIT_LOSS_MAX = SF%FIRELINE_MLR_MAX*DT_BC*DZVEG_L 
   MPA_MOIST_LOSS_MAX = MPA_VOLIT_LOSS_MAX
 
 ! Determine the gas-phase vertical grid cell index, SF%VEG_KGAS_L, for each cell in the vegetation grid. 
 ! This is needed for cases in which the vegetation height is larger than the height of the first gas-phase grid cell
-! The WC% and SF% indices are related. As the WC% index goes from LBURN+1 to NVEG_L the SF% index goes 
+! The ONE_D% (wall cell) and SF% indices are related. As the ONE_D% index goes from LBURN+1 to NVEG_L the SF% index goes 
 ! from 1 to NVEG_L - LBURN.
-! Also, with increasing index value in WC% and SF% we pass from the top of the vegetation to the bottom
+! Also, with increasing index value in ONE_D% and SF% we pass from the top of the vegetation to the bottom
 
   DO IVEG_L = 1, NVEG_L - LBURN
    SF%VEG_KGAS_L(NVEG_L-LBURN-IVEG_L+1) = KKG 
@@ -275,7 +281,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 ! Factors for computing decay of +/- incident fluxes
   SF%VEG_FINCM_RADFCT_L(:) =  0.0_EB
   SF%VEG_FINCP_RADFCT_L(:) =  0.0_EB
-  ETA_H = KAPPA_VEG*WC%VEG_HEIGHT
+  ETA_H = KAPPA_VEG*ONE_D%VEG_HEIGHT
 
   DO IVEG_L = 0,NVEG_L - LBURN
     ETAFM_VEG = REAL(IVEG_L,EB)*DETA_VEG
@@ -312,7 +318,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
   DO I=1,NVEG_L-LBURN
     KKG_L  = SF%VEG_KGAS_L(I)
     TMP_G  = TMP(IIG,JJG,KKG_L)
-    DTMP_L = TMP_G - WC%ONE_D%VEG_TMP_L(I+LBURN)
+    DTMP_L = TMP_G - ONE_D%VEG_TMP_L(I+LBURN)
 
 !Convective heat correlation for laminar flow (Holman see ref above) 
     IF (SF%VEG_HCONV_CYLLAM) H_CONV_L = 1.42_EB*(ABS(DTMP_L)/DZVEG_L)**0.25
@@ -321,7 +327,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 !a cylinder in a cross flow, Hilpert Correlation; Incropera & Dewitt Forth Edition p. 370
     IF(SF%VEG_HCONV_CYLRE) THEN 
      RHO_GAS  = RHO(IIG,JJG,KKG_L)
-     TMP_FILM = 0.5_EB*(TMP_G + WC%ONE_D%VEG_TMP_L(I+LBURN))
+     TMP_FILM = 0.5_EB*(TMP_G + ONE_D%VEG_TMP_L(I+LBURN))
      ZZ_GET(1:N_TRACKED_SPECIES) = MAX(0._EB,ZZ(IIG,JJG,KKG,1:N_TRACKED_SPECIES))
      CALL GET_VISCOSITY(ZZ_GET,MU_GAS,TMP_FILM)
      CALL GET_CONDUCTIVITY(ZZ_GET,K_GAS,TMP_FILM) !W/m/K
@@ -346,7 +352,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
    
     HCONV_CYLMAX: IF(SF%VEG_HCONV_CYLMAX) THEN 
       RHO_GAS  = RHO(IIG,JJG,KKG_L)
-      TMP_FILM = 0.5_EB*(TMP_G + WC%ONE_D%VEG_TMP_L(I+LBURN))
+      TMP_FILM = 0.5_EB*(TMP_G + ONE_D%VEG_TMP_L(I+LBURN))
       ZZ_GET(1:N_TRACKED_SPECIES) = MAX(0._EB,ZZ(IIG,JJG,KKG_L,1:N_TRACKED_SPECIES))
       CALL GET_VISCOSITY(ZZ_GET,MU_GAS,TMP_FILM)
       CALL GET_SPECIFIC_HEAT(ZZ_GET,CP_GAS,TMP_FILM)
@@ -414,16 +420,16 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 ! qe+
     DO J=0,NVEG_L-LBURN !veg grid coordinate loop
       DO I=J,NVEG_L-LBURN !integrand loop 
-!        VEG_QRP_EMISS(J) =  VEG_QRP_EMISS(J) + SF%VEG_SEMISSP_RADFCT_L(I,J)*WC%VEG_TMP_L(I+LBURN)**4
+!        VEG_QRP_EMISS(J) =  VEG_QRP_EMISS(J) + SF%VEG_SEMISSP_RADFCT_L(I,J)*ONE_D%VEG_TMP_L(I+LBURN)**4
          IF (I==0) THEN
            KKG_L = SF%VEG_KGAS_L(1)
          ELSE
            KKG_L = SF%VEG_KGAS_L(I)
          ENDIF
          TMP_G = TMP(IIG,JJG,KKG_L)
-         WC%ONE_D%VEG_TMP_L(LBURN)    = TMP_G !for top of fuel bed
-         WC%ONE_D%VEG_TMP_L(NVEG_L+1) = WC%ONE_D%VEG_TMP_L(NVEG_L) !for bottom of fuel bed
-         VEG_TMP_FACE = 0.5_EB*(WC%ONE_D%VEG_TMP_L(I+LBURN)+WC%ONE_D%VEG_TMP_L(I+LBURN+1))
+         ONE_D%VEG_TMP_L(LBURN)    = TMP_G !for top of fuel bed
+         ONE_D%VEG_TMP_L(NVEG_L+1) = ONE_D%VEG_TMP_L(NVEG_L) !for bottom of fuel bed
+         VEG_TMP_FACE = 0.5_EB*(ONE_D%VEG_TMP_L(I+LBURN)+ONE_D%VEG_TMP_L(I+LBURN+1))
          VEG_QRP_EMISS(J) =  VEG_QRP_EMISS(J) + SF%VEG_SEMISSP_RADFCT_L(I,J)*VEG_TMP_FACE**4
 
       ENDDO
@@ -431,16 +437,16 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 ! qe-
     DO J=0,NVEG_L-LBURN  !veg grid coordinate
       DO I=0,J           !integrand for q-
-!        VEG_QRM_EMISS(J) = VEG_QRM_EMISS(J) + SF%VEG_SEMISSM_RADFCT_L(I,J)*WC%VEG_TMP_L(I+LBURN)**4
+!        VEG_QRM_EMISS(J) = VEG_QRM_EMISS(J) + SF%VEG_SEMISSM_RADFCT_L(I,J)*ONE_D%VEG_TMP_L(I+LBURN)**4
          IF (I==0) THEN
            KKG_L = SF%VEG_KGAS_L(1)
          ELSE
            KKG_L = SF%VEG_KGAS_L(I)
          ENDIF
          TMP_G = TMP(IIG,JJG,KKG_L)
-         WC%ONE_D%VEG_TMP_L(LBURN)    = TMP_G
-         WC%ONE_D%VEG_TMP_L(NVEG_L+1) = WC%ONE_D%VEG_TMP_L(NVEG_L) 
-         VEG_TMP_FACE = 0.5_EB*(WC%ONE_D%VEG_TMP_L(I+LBURN)+WC%ONE_D%VEG_TMP_L(I+LBURN+1))
+         ONE_D%VEG_TMP_L(LBURN)    = TMP_G
+         ONE_D%VEG_TMP_L(NVEG_L+1) = ONE_D%VEG_TMP_L(NVEG_L) 
+         VEG_TMP_FACE = 0.5_EB*(ONE_D%VEG_TMP_L(I+LBURN)+ONE_D%VEG_TMP_L(I+LBURN+1))
          VEG_QRM_EMISS(J) =  VEG_QRM_EMISS(J) + SF%VEG_SEMISSM_RADFCT_L(I,J)*VEG_TMP_FACE**4
 
       ENDDO
@@ -460,7 +466,7 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
     ENDDO
 !
 ! Compute +/- radiation fluxes and their divergence due to incident fluxes on boundaries
-    QRADM_INC = WC%ONE_D%Q_RAD_IN/SF%EMISSIVITY !sigma*Ta^4 + flame
+    QRADM_INC = ONE_D%Q_RAD_IN/SF%EMISSIVITY !sigma*Ta^4 + flame
 !   QRADM_INC = QRADIN(IW)/E_WALL(IW) + SIGMA*TMP_F(IW)**4 ! as done in FDS4
 !   print*,'vege: QRADIN(IW)',qradin(iw)
 
@@ -468,9 +474,9 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 ! assumes user put VEG_NO_BURN=.TRUE. for vertical faces
 ! sets qrad on cell downspread of vertical face = qrad on cell face upspread of vertical face
 !   QRADM_INC = QRADM_INC*1.0038_EB !adjustment for horizontal faces assuming 5 degree slope
-!   II = WC%II
-!   JJ = WC%JJ
-!   KK = WC%KK
+!   II = ONE_D%II
+!   JJ = ONE_D%JJ
+!   KK = ONE_D%KK
 !   IC = CELL_INDEX(II-1,JJ,KK)
 !   IOR = 1
 !   IW_CELL = WALL_INDEX(IC,IOR) 
@@ -498,9 +504,9 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
     IF(SF%VEG_GROUND_ZERO_RAD) QRADP_INC = QRADM_INC*SF%VEG_FINCM_RADFCT_L(NVEG_L-LBURN) + VEG_QRM_EMISS(NVEG_L-LBURN)
     !this QRADP_INC assumes the ground stays at user specified temperature
     IF(.NOT. SF%VEG_GROUND_ZERO_RAD) QRADP_INC = SIGMA*SF%VEG_GROUND_TEMP**4
-!   QRADP_INC = SIGMA*WC%VEG_TMP_L(NVEG_L)**4 
+!   QRADP_INC = SIGMA*ONE_D%VEG_TMP_L(NVEG_L)**4 
 !   IF(.NOT. SF%VEG_GROUND_ZERO_RAD) QRADP_INC = SIGMA*TMP_G**4
-!   QRADP_INC = SIGMA*WC%VEG_TMP_L(NVEG_L)**4*EXP(-ETAVEG_H) + VEG_QRM_EMISS(NVEG_L-LBURN) !fds4
+!   QRADP_INC = SIGMA*ONE_D%VEG_TMP_L(NVEG_L)**4*EXP(-ETAVEG_H) + VEG_QRM_EMISS(NVEG_L-LBURN) !fds4
     VEG_QRM_INC   = 0.0_EB ; VEG_QRP_INC = 0.0_EB 
     VEG_QRNET_INC = 0.0_EB ; VEG_DIV_QRNET_INC = 0.0_EB
     DO I=0,NVEG_L-LBURN
@@ -535,10 +541,10 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 !
 ! Compute temperature of vegetation
 !
-      MPA_CHAR    = WC%ONE_D%VEG_CHARMASS_L(IVEG_L)
-      MPA_VEG     = WC%ONE_D%VEG_FUELMASS_L(IVEG_L)
-      MPA_MOIST   = WC%ONE_D%VEG_MOISTMASS_L(IVEG_L)
-      TMP_VEG     = WC%ONE_D%VEG_TMP_L(IVEG_L)
+      MPA_CHAR    = ONE_D%VEG_CHARMASS_L(IVEG_L)
+      MPA_VEG     = ONE_D%VEG_FUELMASS_L(IVEG_L)
+      MPA_MOIST   = ONE_D%VEG_MOISTMASS_L(IVEG_L)
+      TMP_VEG     = ONE_D%VEG_TMP_L(IVEG_L)
       QNET_VEG    = SF%VEG_DIVQNET_L(IVEG_L-LBURN)
       CP_VEG      = (0.01_EB + 0.0037_EB*TMP_VEG)*1000._EB !J/kg/K
       CP_CHAR     = 420._EB + 2.09_EB*TMP_VEG + 6.85E-4_EB*TMP_VEG**2 !J/kg/K Park etal. C&F 2010 147:481-494
@@ -558,9 +564,9 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 !       MPA_MOIST_LOSS = MIN(DT_BC*Q_FOR_DRYING/H_H2O_VEG,MPA_MOIST_LOSS_MAX)
         MPA_MOIST_LOSS = MIN(MPA_MOIST_LOSS,MPA_MOIST-MPA_MOIST_MIN)
         TMP_VEG_NEW    = TMP_BOIL
-        WC%ONE_D%VEG_MOISTMASS_L(IVEG_L) = MPA_MOIST - MPA_MOIST_LOSS !kg/m^2
-        IF( WC%ONE_D%VEG_MOISTMASS_L(IVEG_L) <= MPA_MOIST_MIN ) WC%ONE_D%VEG_MOISTMASS_L(IVEG_L) = 0.0_EB
-        IF (I_WATER > 0) WC%ONE_D%MASSFLUX(I_WATER) = WC%ONE_D%MASSFLUX(I_WATER) + RDT_BC*MPA_MOIST_LOSS
+        ONE_D%VEG_MOISTMASS_L(IVEG_L) = MPA_MOIST - MPA_MOIST_LOSS !kg/m^2
+        IF( ONE_D%VEG_MOISTMASS_L(IVEG_L) <= MPA_MOIST_MIN ) ONE_D%VEG_MOISTMASS_L(IVEG_L) = 0.0_EB
+        IF (I_WATER > 0) WATER_VAPOR_MASS_FLUX = WATER_VAPOR_MASS_FLUX + RDT_BC*MPA_MOIST_LOSS
       ENDIF
 
 ! -- pyrolysis (Linear)
@@ -586,10 +592,10 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
           TMP_VEG_NEW  = TMP_VEG + (Q_FOR_VOLIT-Q_VOLIT)/(MPA_VEG*CP_VEG + MPA_CHAR*CP_CHAR)
           TMP_VEG_NEW  = MIN(TMP_VEG_NEW,500._EB)
-          WC%ONE_D%VEG_CHARMASS_L(IVEG_L) = MPA_CHAR
-          WC%ONE_D%VEG_FUELMASS_L(IVEG_L) = MPA_VEG
-          IF( WC%ONE_D%VEG_FUELMASS_L(IVEG_L) <= MPA_VEG_MIN ) WC%ONE_D%VEG_FUELMASS_L(IVEG_L) = 0.0_EB !**
-          WC%ONE_D%MASSFLUX(I_FUEL)= WC%ONE_D%MASSFLUX(I_FUEL) + RDT_BC*MPA_VOLIT
+          ONE_D%VEG_CHARMASS_L(IVEG_L) = MPA_CHAR
+          ONE_D%VEG_FUELMASS_L(IVEG_L) = MPA_VEG
+          IF( ONE_D%VEG_FUELMASS_L(IVEG_L) <= MPA_VEG_MIN ) ONE_D%VEG_FUELMASS_L(IVEG_L) = 0.0_EB !**
+          FUEL_VAPOR_MASS_FLUX = FUEL_VAPOR_MASS_FLUX + RDT_BC*MPA_VOLIT
         ENDIF        
 
       ENDIF IF_VOLITIZATION
@@ -598,8 +604,8 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
       
       IF(MPA_VEG <= MPA_VEG_MIN) LBURN_NEW = MIN(LBURN_NEW+1,NVEG_L)
       IF(TMP_VEG_NEW < TMPA) TMP_VEG_NEW = TMPA !clip
-      WC%ONE_D%VEG_TMP_L(IVEG_L) = TMP_VEG_NEW
-      WC%VEG_HEIGHT        = REAL(NVEG_L-LBURN_NEW,EB)*DZVEG_L
+      ONE_D%VEG_TMP_L(IVEG_L) = TMP_VEG_NEW
+      ONE_D%VEG_HEIGHT        = REAL(NVEG_L-LBURN_NEW,EB)*DZVEG_L
 
     ENDDO LAYER_LOOP1
 
@@ -647,13 +653,13 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
     LAYER_LOOP2: DO IVEG_L = LBURN+1,NVEG_L
 
-      MPA_MOIST = WC%ONE_D%VEG_MOISTMASS_L(IVEG_L)
-      MPA_VEG   = WC%ONE_D%VEG_FUELMASS_L(IVEG_L)
-      MPA_CHAR  = WC%ONE_D%VEG_CHARMASS_L(IVEG_L)
-      MPA_ASH   = WC%ONE_D%VEG_ASHMASS_L(IVEG_L)
-      TMP_VEG   = WC%ONE_D%VEG_TMP_L(IVEG_L)
+      MPA_MOIST = ONE_D%VEG_MOISTMASS_L(IVEG_L)
+      MPA_VEG   = ONE_D%VEG_FUELMASS_L(IVEG_L)
+      MPA_CHAR  = ONE_D%VEG_CHARMASS_L(IVEG_L)
+      MPA_ASH   = ONE_D%VEG_ASHMASS_L(IVEG_L)
+      TMP_VEG   = ONE_D%VEG_TMP_L(IVEG_L)
 
-      TEMP_THRESEHOLD: IF (WC%ONE_D%VEG_TMP_L(IVEG_L) > 323._EB) THEN
+      TEMP_THRESEHOLD: IF (ONE_D%VEG_TMP_L(IVEG_L) > 323._EB) THEN
               !arbitrary thresehold to prevent low-temp hrr reaction
               !added for drainage runs
 
@@ -663,8 +669,8 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
                          MPA_MOIST-MPA_MOIST_MIN)
         MPA_MOIST_LOSS = MIN(MPA_MOIST_LOSS,MPA_MOIST_LOSS_MAX) !user specified max
         MPA_MOIST      = MPA_MOIST - MPA_MOIST_LOSS
-        WC%ONE_D%VEG_MOISTMASS_L(IVEG_L) = MPA_MOIST !kg/m^2
-        IF (MPA_MOIST <= MPA_MOIST_MIN) WC%ONE_D%VEG_MOISTMASS_L(IVEG_L) = 0.0_EB
+        ONE_D%VEG_MOISTMASS_L(IVEG_L) = MPA_MOIST !kg/m^2
+        IF (MPA_MOIST <= MPA_MOIST_MIN) ONE_D%VEG_MOISTMASS_L(IVEG_L) = 0.0_EB
       ENDIF IF_DEHYDRATION_2
 
 ! Volitalization of vegetation(Arrhenius)
@@ -681,11 +687,11 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
 
       ENDIF IF_VOLITALIZATION_2
 
-      WC%ONE_D%VEG_FUELMASS_L(IVEG_L) = MPA_VEG
-      WC%ONE_D%VEG_CHARMASS_L(IVEG_L) = MPA_CHAR
+      ONE_D%VEG_FUELMASS_L(IVEG_L) = MPA_VEG
+      ONE_D%VEG_CHARMASS_L(IVEG_L) = MPA_CHAR
 
-      WC%ONE_D%MASSFLUX(I_FUEL)= WC%ONE_D%MASSFLUX(I_FUEL) + MPA_VOLIT*RDT_BC
-      IF (I_WATER > 0) WC%ONE_D%MASSFLUX(I_WATER) = WC%ONE_D%MASSFLUX(I_WATER) + MPA_MOIST_LOSS*RDT_BC
+      FUEL_VAPOR_MASS_FLUX = FUEL_VAPOR_MASS_FLUX + MPA_VOLIT*RDT_BC
+      IF (I_WATER > 0) WATER_VAPOR_MASS_FLUX = WATER_VAPOR_MASS_FLUX + MPA_MOIST_LOSS*RDT_BC
 
 !Char oxidation oF Vegetation Layer within the Arrhenius pyrolysis model
 !(note that this can be handled only approximately with the conserved
@@ -701,16 +707,16 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
          CALL GET_VISCOSITY(ZZ_GET,MU_GAS,TMP_G)
          RE_D = RHO_GAS*SQRT(U2 + V2 + W(IIG,JJG,1)**2)*4._EB/SF%VEG_SV/MU_GAS 
          MPA_CHAR_LOSS = DT_BC*RHO_GAS*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SF%VEG_SV*  &
-                         SF%VEG_PACKING*EXP(-E_CHAR_VEG/WC%ONE_D%VEG_TMP_L(IVEG_L))*  &
+                         SF%VEG_PACKING*EXP(-E_CHAR_VEG/ONE_D%VEG_TMP_L(IVEG_L))*  &
                          (1+BETA_CHAR_VEG*SQRT(RE_D))
          MPA_CHAR_LOSS = MIN(MPA_CHAR,MPA_CHAR_LOSS)
          MPA_CHAR      = MPA_CHAR - MPA_CHAR_LOSS
          MPA_ASH       = MPA_ASH + NU_ASH_VEG*MPA_CHAR_LOSS
 !        MPA_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPA_CHAR_LOSS
-         WC%ONE_D%VEG_CHARMASS_L(IVEG_L) = MPA_CHAR !kg/m^3
-         WC%ONE_D%VEG_ASHMASS_L(IVEG_L)  = MPA_ASH
+         ONE_D%VEG_CHARMASS_L(IVEG_L) = MPA_CHAR !kg/m^3
+         ONE_D%VEG_ASHMASS_L(IVEG_L)  = MPA_ASH
 
-         IF (MPA_CHAR <= MPA_CHAR_MIN .AND. MPA_VEG <= MPA_VEG_MIN) WC%ONE_D%VEG_CHARMASS_L(IVEG_L) = 0.0_EB
+         IF (MPA_CHAR <= MPA_CHAR_MIN .AND. MPA_VEG <= MPA_VEG_MIN) ONE_D%VEG_CHARMASS_L(IVEG_L) = 0.0_EB
        ENDIF IF_CHAR_OXIDATION
 
       ENDIF TEMP_THRESEHOLD
@@ -719,35 +725,40 @@ VEG_WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS+N_INTERNAL_WALL_CELLS
       CP_VEG = (0.01_EB + 0.0037_EB*TMP_VEG)*1000._EB !W/kg/K
       CP_CHAR= 420._EB + 2.09_EB*TMP_VEG + 6.85E-4_EB*TMP_VEG**2 !J/kg/K Park etal. C&F 2010 147:481-494
       Q_VEG_CHAR       = MPA_CHAR_LOSS*H_CHAR_VEG
-      CP_MOIST_AND_VEG = CP_H2O*WC%ONE_D%VEG_MOISTMASS_L(IVEG_L) + CP_VEG*WC%ONE_D%VEG_FUELMASS_L(IVEG_L) + &
-                         CP_CHAR*WC%ONE_D%VEG_CHARMASS_L(IVEG_L) + CP_ASH*WC%ONE_D%VEG_ASHMASS_L(IVEG_L)
+      CP_MOIST_AND_VEG = CP_H2O*ONE_D%VEG_MOISTMASS_L(IVEG_L) + CP_VEG*ONE_D%VEG_FUELMASS_L(IVEG_L) + &
+                         CP_CHAR*ONE_D%VEG_CHARMASS_L(IVEG_L) + CP_ASH*ONE_D%VEG_ASHMASS_L(IVEG_L)
 
-      WC%ONE_D%VEG_TMP_L(IVEG_L) = WC%ONE_D%VEG_TMP_L(IVEG_L) + (DT_BC*SF%VEG_DIVQNET_L(IVEG_L-LBURN) - &
+      ONE_D%VEG_TMP_L(IVEG_L) = ONE_D%VEG_TMP_L(IVEG_L) + (DT_BC*SF%VEG_DIVQNET_L(IVEG_L-LBURN) - &
                              (MPA_MOIST_LOSS*H_H2O_VEG + MPA_VOLIT*H_PYR_VEG) + CHAR_ENTHALPY_FRACTION_VEG*Q_VEG_CHAR ) &
                              /CP_MOIST_AND_VEG
-      WC%ONE_D%VEG_TMP_L(IVEG_L) = MAX( WC%ONE_D%VEG_TMP_L(IVEG_L), TMPA)
-      WC%ONE_D%VEG_TMP_L(IVEG_L) = MIN( WC%ONE_D%VEG_TMP_L(IVEG_L), TMP_CHAR_MAX)
+      ONE_D%VEG_TMP_L(IVEG_L) = MAX( ONE_D%VEG_TMP_L(IVEG_L), TMPA)
+      ONE_D%VEG_TMP_L(IVEG_L) = MIN( ONE_D%VEG_TMP_L(IVEG_L), TMP_CHAR_MAX)
 
     ENDDO LAYER_LOOP2
 
   ENDIF IF_VEG_DEGRADATION_ARRHENIUS
   
-  WC%ONE_D%VEG_TMP_L(LBURN) = MAX(TMP_G,TMPA)
-  WC%ONE_D%MASSFLUX_SPEC(I_FUEL) = WC%ONE_D%MASSFLUX(I_FUEL)
-  IF (I_WATER > 0) WC%ONE_D%MASSFLUX_SPEC(I_WATER) = WC%ONE_D%MASSFLUX(I_WATER)
+  ONE_D%VEG_TMP_L(LBURN) = MAX(TMP_G,TMPA)
+  ONE_D%M_DOT_G_PP_ACTUAL(I_FUEL) = FUEL_VAPOR_MASS_FLUX
+  ONE_D%M_DOT_G_PP_ADJUST(I_FUEL) = FUEL_VAPOR_MASS_FLUX
+
+  IF (I_WATER > 0) THEN 
+    ONE_D%M_DOT_G_PP_ACTUAL(I_WATER) = WATER_VAPOR_MASS_FLUX
+    ONE_D%M_DOT_G_PP_ADJUST(I_WATER) = WATER_VAPOR_MASS_FLUX
+  ENDIF
  
 ! Temperature boundary condtions 
 ! Mass boundary conditions are determine in subroutine SPECIES_BC in wall.f90 for case SPECIFIED_MASS_FLUX
-! TMP_F(IW) = WC%VEG_TMP_L(NVEG_L)
-! IF (LBURN < NVEG_L)  TMP_F(IW) = WC%VEG_TMP_L(1+LBURN)
+! TMP_F(IW) = ONE_D%VEG_TMP_L(NVEG_L)
+! IF (LBURN < NVEG_L)  TMP_F(IW) = ONE_D%VEG_TMP_L(1+LBURN)
 
   IF (LBURN_NEW < NVEG_L) THEN
-    WC%ONE_D%TMP_F = WC%ONE_D%VEG_TMP_L(1+LBURN_NEW)
-!   WC%ONE_D%TMP_F = ((VEG_QRP_INC(0)+VEG_QRP_EMISS(0))/SIGMA)**.25 !as done in FDS4
+    ONE_D%TMP_F = ONE_D%VEG_TMP_L(1+LBURN_NEW)
+!   ONE_D%TMP_F = ((VEG_QRP_INC(0)+VEG_QRP_EMISS(0))/SIGMA)**.25 !as done in FDS4
   ELSE
     KKG_L = SF%VEG_KGAS_L(1)
     TMP_G = TMP(IIG,JJG,KKG_L)
-    WC%ONE_D%TMP_F = MAX(TMP_G,TMPA) !Tveg=Tgas if veg is completely burned
+    ONE_D%TMP_F = MAX(TMP_G,TMPA) !Tveg=Tgas if veg is completely burned
   ENDIF
 
 !if(wc%one_d%tmp_f > 500._EB) then 
@@ -763,10 +774,13 @@ VEG_CLOCK_BC = T
 
 END SUBROUTINE BNDRY_VEG_MASS_ENERGY_TRANSFER
 
-SUBROUTINE INITIALIZE_LEVEL_SET_FIRESPREAD_1(NM)
+!> \brief Set up the major level set arrays
+!>
+!> \param NM Mesh number
+!> \details Set up the array for level set value PHI_LS, and determine terrain height on each 2D mesh, Z_LS(I,J).
+!> After this routine, go back to main, exchange Z_LS, and return for more initialization.
 
-! Set up the major arrays, like the level set value PHI_LS, and determine terrain height on each 2D mesh, Z_LS(I,J).
-! After this routine, go back to main, exchange Z_LS, and return for more initialization.
+SUBROUTINE INITIALIZE_LEVEL_SET_FIRESPREAD_1(NM)
 
 USE COMPLEX_GEOMETRY, ONLY : IBM_IDCF
 INTEGER, INTENT(IN) :: NM
@@ -775,6 +789,8 @@ TYPE (MESH_TYPE),    POINTER :: M
 TYPE (WALL_TYPE),    POINTER :: WC
 TYPE (CFACE_TYPE),   POINTER :: CFA
 TYPE (SURFACE_TYPE), POINTER :: SF
+
+T_NOW = CURRENT_TIME()
 
 CALL POINT_TO_MESH(NM)
 
@@ -855,21 +871,24 @@ Z_LS(IBP1,   0) = Z_LS(IBAR,   1)
 Z_LS(   0,JBP1) = Z_LS(   1,JBAR)
 Z_LS(IBP1,JBP1) = Z_LS(IBAR,JBAR)
 
+T_USED(15) = T_USED(15) + CURRENT_TIME() - T_NOW
 END SUBROUTINE INITIALIZE_LEVEL_SET_FIRESPREAD_1
 
 
+!> \brief Continue initialialization of level set routines
+!>
+!> \param NM Mesh number 
+!> \details First, retrieve terrain height, Z_LS, from other meshes. Then do various other set up chores.
+
 SUBROUTINE INITIALIZE_LEVEL_SET_FIRESPREAD_2(NM)
 
-! Continuation of set up routine. First, retrieve terrain height, Z_LS, from other meshes. Then do various other set up chores.
-
 INTEGER, INTENT(IN) :: NM
-INTEGER :: I,IM1,IM2,IIG,IP1,IP2,J,JJG,JM1,JP1,KDUM,KWIND
-REAL(EB) :: DZT_DUM
-REAL(EB) :: G_EAST,G_WEST,G_SOUTH,G_NORTH
-REAL(EB) :: PHX,PHY,MAG_PHI,UMF_TMP
-REAL(EB) :: PHI_W_X,PHI_W_Y,MAG_PHI_S,UMF_X,UMF_Y
+INTEGER :: I,IM1,IM2,IIG,IP1,IP2,J,JJG,JM1,JP1
+REAL(EB) :: DZT_DUM,G_EAST,G_WEST,G_SOUTH,G_NORTH
 TYPE (MESH_TYPE),    POINTER :: M
 TYPE (SURFACE_TYPE), POINTER :: SF
+
+T_NOW = CURRENT_TIME()
 
 CALL POINT_TO_MESH(NM)
 
@@ -898,7 +917,6 @@ ROS_FLANK = 0.0_EB
 ROS_BACKU = 0.0_EB
 WIND_EXP  = 1.0_EB
 
-LSET_ELLIPSE = .FALSE. ! Flag for the elliptical spread model
 LSET_TAN2    = .FALSE. ! Flag for ROS proportional to Tan(slope)^2
 
 ! Flux limiters
@@ -926,7 +944,6 @@ ALLOCATE(M%PHI_WS(IBAR,JBAR))   ; CALL ChkMemErr('VEGE:LEVEL SET','PHI_W',IZERO)
 ALLOCATE(M%PHI_S(IBAR,JBAR))    ; CALL ChkMemErr('VEGE:LEVEL SET','PHI_S',IZERO)   ; PHI_S => M%PHI_S
 ALLOCATE(M%PHI_S_X(IBAR,JBAR))  ; CALL ChkMemErr('VEGE:LEVEL SET','PHI_S_X',IZERO) ; PHI_S_X => M%PHI_S_X
 ALLOCATE(M%PHI_S_Y(IBAR,JBAR))  ; CALL ChkMemErr('VEGE:LEVEL SET','PHI_S_Y',IZERO) ; PHI_S_Y => M%PHI_S_Y
-ALLOCATE(M%PHI_W(IBAR,JBAR))    ; CALL ChkMemErr('VEGE:LEVEL SET','PHI_W',IZERO)   ; PHI_W => M%PHI_W
 
 ! UMF = wind speed at mean flame heights
 
@@ -968,11 +985,8 @@ GRADIENT_ILOOP: DO I = 1,IBAR
 
 ENDDO GRADIENT_ILOOP
 
-! Initialize arrays for head, flank, and back fire spread rates with values
-! explicitly declared in the input file or from FARSITE head fire and ellipse
-! based flank and back fires.
-! Fill arrays for the horizontal component of the velocity arrays.
-! Initialize level set scalar array PHI
+! Initialize arrays for head, flank, and back fire spread rates with values explicitly declared in the input file or 
+! from FARSITE head fire and ellipse based flank and back fires.
 
 DO JJG=1,JBAR
    DO IIG=1,IBAR
@@ -981,14 +995,7 @@ DO JJG=1,JBAR
 
       IF (.NOT. SF%VEG_LSET_SPREAD) CYCLE
 
-      ! Ignite landscape at user specified location if ignition is at time zero
-
-      IF (SF%VEG_LSET_IGNITE_T == 0.0_EB) PHI_LS(IIG,JJG) = PHI_LS_MAX
-
-      ! Wind field
-
-      U_LS(IIG,JJG) = 0.5_EB*(U(IIG-1,JJG,K_LS(IIG,JJG))+U(IIG,JJG,K_LS(IIG,JJG)))
-      V_LS(IIG,JJG) = 0.5_EB*(V(IIG,JJG-1,K_LS(IIG,JJG))+V(IIG,JJG,K_LS(IIG,JJG)))
+      ! Initialize various arrays
 
       ROS_HEAD(IIG,JJG)  = SF%VEG_LSET_ROS_HEAD
       ROS_FLANK(IIG,JJG) = SF%VEG_LSET_ROS_FLANK
@@ -1001,49 +1008,20 @@ DO JJG=1,JBAR
 
       ! Use assumed ellipse shape of fireline as in Farsite
 
-      IF_ELLIPSE_UNCOUPLED: IF (SF%VEG_LSET_ELLIPSE) THEN
+      IF_ELLIPSE: IF (LEVEL_SET_ELLIPSE) THEN
 
          ROS_HEAD(IIG,JJG) = SF%VEG_LSET_ROS
          SF%VEG_LSET_HT = MAX(0.001_EB,SF%VEG_LSET_HT)
 
-         ! If any surfaces set to ellipse, then elliptical model used for all surfaces
-
-         IF (.NOT. LSET_ELLIPSE) LSET_ELLIPSE = .TRUE.
-
-         ! Find wind at ~6.1 m height for Farsite
-         KWIND = 0
-         DO KDUM = K_LS(IIG,JJG),KBAR
-            IF (ZC(KDUM)-ZC(K_LS(IIG,JJG)) >= 6.1_EB) KWIND = KDUM
-         ENDDO
-         IF (ZC(KBAR) < 6.1_EB) KWIND=1
-
-         U_LS(IIG,JJG) = 0.5_EB*(U(IIG-1,JJG,KWIND)+U(IIG,JJG,KWIND))
-         V_LS(IIG,JJG) = 0.5_EB*(V(IIG,JJG-1,KWIND)+V(IIG,JJG,KWIND))
-
-         ! Wind at midflame height (UMF). From Andrews 2012, USDA FS Gen Tech Rep. RMRS-GTR-266 (with added SI conversion)
-
-         UMF_TMP = 1.83_EB / LOG((20.0_EB + 1.18_EB * SF%VEG_LSET_HT) /(0.43_EB * SF%VEG_LSET_HT))
-
-         ! Factor 60 converts U from m/s to m/min which is used in elliptical model.
-         UMF_X = UMF_TMP * U_LS(IIG,JJG) * 60.0_EB
-         UMF_Y = UMF_TMP * V_LS(IIG,JJG) * 60.0_EB
-
          ! Variables used in Phi_W formulas below (Rothermel model)
+
          B_ROTH = 0.15988_EB * (SF%VEG_LSET_SIGMA**0.54_EB)
          C_ROTH = 7.47_EB * EXP(-0.8711_EB * (SF%VEG_LSET_SIGMA**0.55_EB))
          E_ROTH = 0.715_EB * EXP(-0.01094_EB * SF%VEG_LSET_SIGMA)
          BETA_OP_ROTH = 0.20395_EB * (SF%VEG_LSET_SIGMA**(-0.8189_EB))! Optimum packing ratio
 
-         ! Components of wind factor - affects spread rate
-         PHI_W_X = C_ROTH * ((3.281_EB * ABS(UMF_X))**B_ROTH) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**(-E_ROTH)
-         PHI_W_X = SIGN(PHI_W_X,UMF_X)
-
-         PHI_W_Y = C_ROTH * ((3.281_EB * ABS(UMF_Y))**B_ROTH) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**(-E_ROTH)
-         PHI_W_Y = SIGN(PHI_W_Y,UMF_Y)
-
-         PHI_W(IIG,JJG) =  SQRT(PHI_W_X**2 + PHI_W_Y**2)
-
          ! Limit effect to slope lte 80 degrees. Phi_s_x,y are slope factors
+
          DZT_DUM = MIN(5.67_EB,ABS(DZTDX(IIG,JJG))) ! 5.67 ~ tan 80 deg
          PHI_S_X(IIG,JJG) = 5.275_EB * ((SF%VEG_LSET_BETA)**(-0.3_EB)) * DZT_DUM**2
          PHI_S_X(IIG,JJG) = SIGN(PHI_S_X(IIG,JJG),DZTDX(IIG,JJG))
@@ -1051,26 +1029,125 @@ DO JJG=1,JBAR
          PHI_S_Y(IIG,JJG) = 5.275_EB * ((SF%VEG_LSET_BETA)**(-0.3_EB)) * DZT_DUM**2
          PHI_S_Y(IIG,JJG) = SIGN(PHI_S_Y(IIG,JJG),DZTDY(IIG,JJG))
 
-         MAG_PHI_S = SQRT(PHI_S_X(IIG,JJG)**2 + PHI_S_Y(IIG,JJG)**2)
+         PHI_S(IIG,JJG) = SQRT(PHI_S_X(IIG,JJG)**2 + PHI_S_Y(IIG,JJG)**2)
 
-         PHI_S(IIG,JJG) = MAG_PHI_S  !5.275 * MAG_ZT(I,J)**2 * (SF%VEG_LSET_BETA)**-0.3
+      ENDIF IF_ELLIPSE
+
+   ENDDO
+ENDDO
+
+T_USED(15) = T_USED(15) + CURRENT_TIME() - T_NOW
+END SUBROUTINE INITIALIZE_LEVEL_SET_FIRESPREAD_2
+
+
+!> \brief Advance the level set array one time step
+!>
+!> \param T Current time (s)
+!> \param DT Time step (s)
+!> \param NM Mesh number
+!> \details Predictor: Estimate PHI_LS at next time step. Estimated value is called PHI1_LS.
+!> Corrector: Correct PHI_LS at next time step.
+
+SUBROUTINE LEVEL_SET_FIRESPREAD(T,DT,NM)
+
+USE MATH_FUNCTIONS, ONLY: EVALUATE_RAMP
+INTEGER, INTENT(IN) :: NM
+REAL(EB), INTENT(IN) :: T,DT
+INTEGER :: IIG,IW,JJG,IC
+INTEGER :: KDUM,KWIND,ICF,IKT
+REAL(EB) :: UMF_TMP,PHX,PHY,MAG_PHI,PHI_W_X,PHI_W_Y,UMF_X,UMF_Y,UMAG,DUMMY=0._EB,ROS_MAG
+TYPE (ONE_D_M_AND_E_XFER_TYPE), POINTER :: ONE_D
+TYPE (SURFACE_TYPE), POINTER :: SF
+
+T_NOW = CURRENT_TIME()
+
+CALL POINT_TO_MESH(NM)
+
+CALL GET_BOUNDARY_VALUES
+
+! Loop over terrain surface cells and update level set field
+
+DO JJG=1,JBAR
+   DO IIG=1,IBAR
+
+      SF => SURFACE(LS_SURF_INDEX(IIG,JJG))
+
+      IF (.NOT. SF%VEG_LSET_SPREAD) CYCLE
+
+      ! Ignite landscape at user specified location and time
+
+      IF (T>SF%VEG_LSET_IGNITE_T) PHI_LS(IIG,JJG) = PHI_LS_MAX
+
+      ! Establish the wind field
+
+      IF_CFD_COUPLED: IF (LEVEL_SET_COUPLED) THEN  ! The wind speed is derived from the CFD computation
+
+         U_LS(IIG,JJG) = 0.5_EB*(U(IIG-1,JJG,K_LS(IIG,JJG))+U(IIG,JJG,K_LS(IIG,JJG)))
+         V_LS(IIG,JJG) = 0.5_EB*(V(IIG,JJG-1,K_LS(IIG,JJG))+V(IIG,JJG,K_LS(IIG,JJG)))
+
+      ELSE IF_CFD_COUPLED  ! The wind velocity is specified by the user
+ 
+         U_LS(IIG,JJG) = U0*EVALUATE_RAMP(T,DUMMY,I_RAMP_U0_T)
+         V_LS(IIG,JJG) = V0*EVALUATE_RAMP(T,DUMMY,I_RAMP_V0_T)
+
+      ENDIF IF_CFD_COUPLED
+
+      IF_ELLIPSE: IF (LEVEL_SET_ELLIPSE) THEN  ! Use assumed elliptical shape of fireline as in Farsite
+
+         ROS_HEAD(IIG,JJG) = SF%VEG_LSET_ROS
+
+         ! Find wind at ~6.1 m height for Farsite
+
+         IF (LEVEL_SET_COUPLED) THEN
+
+            KWIND = 0
+            DO KDUM = K_LS(IIG,JJG),KBAR
+               IF (ZC(KDUM)-ZC(K_LS(IIG,JJG))>=6.1_EB) THEN
+                  KWIND = KDUM
+                  EXIT
+               ENDIF
+            ENDDO
+
+            U_LS(IIG,JJG) = 0.5_EB*(U(IIG-1,JJG,KWIND)+U(IIG,JJG,KWIND))
+            V_LS(IIG,JJG) = 0.5_EB*(V(IIG,JJG-1,KWIND)+V(IIG,JJG,KWIND))
+
+         ENDIF 
+
+         ! Wind at midflame height (UMF). From Andrews 2012, USDA FS Gen Tech Rep. RMRS-GTR-266 (with added SI conversion)
+
+         UMF_TMP = 1.83_EB / LOG((20.0_EB + 1.18_EB * SF%VEG_LSET_HT) /(0.43_EB * SF%VEG_LSET_HT))
+
+         ! Factor 60 converts U from m/s to m/min which is used in elliptical model.
+
+         UMF_X = UMF_TMP * U_LS(IIG,JJG) * 60.0_EB
+         UMF_Y = UMF_TMP * V_LS(IIG,JJG) * 60.0_EB
+
+         ! Components of wind factor - affects spread rate
+
+         PHI_W_X = C_ROTH * ((3.281_EB * ABS(UMF_X))**B_ROTH) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**(-E_ROTH)
+         PHI_W_X = SIGN(PHI_W_X,UMF_X)
+
+         PHI_W_Y = C_ROTH * ((3.281_EB * ABS(UMF_Y))**B_ROTH) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**(-E_ROTH)
+         PHI_W_Y = SIGN(PHI_W_Y,UMF_Y)
 
          ! Slope factor
 
-         IF (MAG_PHI_S > 0.0_EB) THEN
+         IF (PHI_S(IIG,JJG) > 0.0_EB) THEN
 
             PHX = PHI_W_X + PHI_S_X(IIG,JJG)
             PHY = PHI_W_Y + PHI_S_Y(IIG,JJG)
             MAG_PHI = SQRT(PHX**2 + PHY**2)
 
             ! Total phi (phi_w + phi_s) for use in spread rate section
+
             PHI_WS(IIG,JJG) = MAG_PHI
 
             ! Theta_elps is angle of direction (0 to 2pi) of highest spread rate
             ! 0<=theta_elps<=2pi as measured clockwise from Y-axis
+
             THETA_ELPS(IIG,JJG) = ATAN2(PHY,PHX)
 
-            !"Effective midflame windspeed" used in length-to-breadth ratio calculation (spread rate routine)
+            ! "Effective midflame windspeed" used in length-to-breadth ratio calculation (spread rate routine)
             ! is the wind + slope effect obtained by solving Phi_w eqs. above for UMF
             ! 8/8/13 - Changed phi_ws to Phi_s below to match Farsite, i.e., instead of adding phi_w and phi_s
             ! and then calculating effective wind speed, phi_s is converted to an effected wind speed and added
@@ -1088,7 +1165,7 @@ DO JJG=1,JBAR
 
          ELSE
 
-            PHI_WS(IIG,JJG) = SQRT (PHI_W_X**2 + PHI_W_Y**2)
+            PHI_WS(IIG,JJG) = SQRT(PHI_W_X**2 + PHI_W_Y**2)
             THETA_ELPS(IIG,JJG) = ATAN2(PHI_W_Y,PHI_W_X)
 
          ENDIF
@@ -1096,141 +1173,16 @@ DO JJG=1,JBAR
          UMF(IIG,JJG) = SQRT(UMF_X**2 + UMF_Y**2)
 
          ! The following two lines convert ATAN2 output to compass system (0 to 2 pi CW from +Y-axis)
+
          THETA_ELPS(IIG,JJG) = PIO2 - THETA_ELPS(IIG,JJG)
          IF (THETA_ELPS(IIG,JJG) < 0.0_EB) THETA_ELPS(IIG,JJG) = 2.0_EB*PI + THETA_ELPS(IIG,JJG)
 
-      ENDIF IF_ELLIPSE_UNCOUPLED
-
-   ENDDO
-ENDDO
-
-END SUBROUTINE INITIALIZE_LEVEL_SET_FIRESPREAD_2
-
-
-SUBROUTINE LEVEL_SET_FIRESPREAD(T,DT,NM)
-
-! Predictor: Estimate PHI_LS at next time step. Estimated value is called PHI1_LS.
-! Corrector: Correct PHI_LS at next time step.
-
-INTEGER, INTENT(IN) :: NM
-REAL(EB), INTENT(IN) :: T,DT
-INTEGER :: IIG,IW,JJG,IC
-INTEGER :: KDUM,KWIND,ICF,IKT
-REAL(EB) :: UMF_TMP,PHX,PHY,MAG_PHI,PHI_W_X,PHI_W_Y,UMF_X,UMF_Y,UMAG
-TYPE (ONE_D_M_AND_E_XFER_TYPE), POINTER :: ONE_D
-TYPE (SURFACE_TYPE), POINTER :: SF
-
-CALL POINT_TO_MESH(NM)
-
-CALL GET_BOUNDARY_VALUES
-
-! Loop over terrain surface cells and update level set field
-
-DO JJG=1,JBAR
-   DO IIG=1,IBAR
-
-      SF => SURFACE(LS_SURF_INDEX(IIG,JJG))
-
-      IF (.NOT. SF%VEG_LSET_SPREAD) CYCLE
-
-      ! Ignite landscape at user specified location(s) and time(s)
-
-      IF (SF%VEG_LSET_IGNITE_T > 0.0_EB .AND. SF%VEG_LSET_IGNITE_T < DT)  PHI_LS(IIG,JJG) = PHI_LS_MAX
-      IF (SF%VEG_LSET_IGNITE_T >= T .AND. SF%VEG_LSET_IGNITE_T <= T + DT) PHI_LS(IIG,JJG) = PHI_LS_MAX
-
-      ! Variable update when level set is coupled to CFD computation
-
-      IF_CFD_COUPLED: IF (VEG_LEVEL_SET_COUPLED) THEN
-
-         U_LS(IIG,JJG) = 0.5_EB*(U(IIG-1,JJG,K_LS(IIG,JJG))+U(IIG,JJG,K_LS(IIG,JJG)))
-         V_LS(IIG,JJG) = 0.5_EB*(V(IIG,JJG-1,K_LS(IIG,JJG))+V(IIG,JJG,K_LS(IIG,JJG)))
-
-         ! AU grassland ROS for infinite head and 6% moisutre
+      ELSE IF_ELLIPSE  ! AU grassland ROS for infinite head and 6% moisutre
 
          UMAG     = SQRT(U_LS(IIG,JJG)**2 + V_LS(IIG,JJG)**2)
          ROS_HEAD(IIG,JJG)  = SF%VEG_LSET_ROS_HEAD*(0.165_EB + 0.534_EB*UMAG)*0.523_EB
 
-         ! Use assumed ellipse shape of fireline as in Farsite
-
-         IF_ELLIPSE_COUPLED: IF (SF%VEG_LSET_ELLIPSE) THEN
-
-            ROS_HEAD(IIG,JJG) = SF%VEG_LSET_ROS
-
-            ! Find wind at ~6.1 m height for Farsite
-            KWIND = 0
-            DO KDUM = K_LS(IIG,JJG),KBAR
-              IF(ZC(KDUM)-ZC(K_LS(IIG,JJG)) >= 6.1_EB) THEN
-               KWIND = KDUM
-               ENDIF
-            ENDDO
-
-            U_LS(IIG,JJG) = 0.5_EB*(U(IIG-1,JJG,KWIND)+U(IIG,JJG,KWIND))
-            V_LS(IIG,JJG) = 0.5_EB*(V(IIG,JJG-1,KWIND)+V(IIG,JJG,KWIND))
-
-            ! Wind at midflame height (UMF). From Andrews 2012, USDA FS Gen Tech Rep. RMRS-GTR-266 (with added SI conversion)
-            UMF_TMP = 1.83_EB / LOG((20.0_EB + 1.18_EB * SF%VEG_LSET_HT) /(0.43_EB * SF%VEG_LSET_HT))
-
-            ! Factor 60 converts U from m/s to m/min which is used in elliptical model.
-            UMF_X = UMF_TMP * U_LS(IIG,JJG) * 60.0_EB
-            UMF_Y = UMF_TMP * V_LS(IIG,JJG) * 60.0_EB
-
-            ! Components of wind factor - affects spread rate
-            PHI_W_X = C_ROTH * ((3.281_EB * ABS(UMF_X))**B_ROTH) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**(-E_ROTH)
-            PHI_W_X = SIGN(PHI_W_X,UMF_X)
-
-            PHI_W_Y = C_ROTH * ((3.281_EB * ABS(UMF_Y))**B_ROTH) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**(-E_ROTH)
-            PHI_W_Y = SIGN(PHI_W_Y,UMF_Y)
-
-            PHI_W(IIG,JJG) =  SQRT(PHI_W_X**2 + PHI_W_Y**2)
-
-            ! Slope factor
-
-            IF (PHI_S(IIG,JJG) > 0.0_EB) THEN
-
-               PHX = PHI_W_X + PHI_S_X(IIG,JJG)
-               PHY = PHI_W_Y + PHI_S_Y(IIG,JJG)
-               MAG_PHI = SQRT(PHX**2 + PHY**2)
-
-               ! Total phi (phi_w + phi_s) for use in spread rate section
-               PHI_WS(IIG,JJG) = MAG_PHI
-
-               ! Theta_elps is angle of direction (0 to 2pi) of highest spread rate
-               ! 0<=theta_elps<=2pi as measured clockwise from Y-axis
-               THETA_ELPS(IIG,JJG) = ATAN2(PHY,PHX)
-
-               !"Effective midflame windspeed" used in length-to-breadth ratio calculation (spread rate routine)
-               ! is the wind + slope effect obtained by solving Phi_w eqs. above for UMF
-               ! 8/8/13 - Changed phi_ws to Phi_s below to match Farsite, i.e., instead of adding phi_w and phi_s
-               ! and then calculating effective wind speed, phi_s is converted to an effected wind speed and added
-               ! to UMF calculated from the wind. Effective U has units of m/min in Wilson formula.
-               ! 0.3048 ~= 1/3.281
-               !if phi_s < 0 then a complex value (NaN) results. Using abs(phi_s) and sign function to correct.
-
-               UMF_TMP = (((ABS(PHI_S_X(IIG,JJG)) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**E_ROTH)/C_ROTH)**(1/B_ROTH))*0.3048
-               UMF_TMP = SIGN(UMF_TMP,PHI_S_X(IIG,JJG))
-               UMF_X = UMF_X + UMF_TMP
-
-               UMF_TMP = (((ABS(PHI_S_Y(IIG,JJG)) * (SF%VEG_LSET_BETA / BETA_OP_ROTH)**E_ROTH)/C_ROTH)**(1/B_ROTH))*0.3048
-               UMF_TMP = SIGN(UMF_TMP,PHI_S_Y(IIG,JJG))
-               UMF_Y = UMF_Y + UMF_TMP
-
-            ELSE
-
-               PHI_WS(IIG,JJG) = SQRT(PHI_W_X**2 + PHI_W_Y**2)
-               THETA_ELPS(IIG,JJG) = ATAN2(PHI_W_Y,PHI_W_X)
-
-            ENDIF
-
-            UMF(IIG,JJG) = SQRT(UMF_X**2 + UMF_Y**2)
-
-            ! The following two lines convert ATAN2 output to compass system (0 to 2 pi CW from +Y-axis)
-
-            THETA_ELPS(IIG,JJG) = PIO2 - THETA_ELPS(IIG,JJG)
-            IF (THETA_ELPS(IIG,JJG) < 0.0_EB) THETA_ELPS(IIG,JJG) = 2.0_EB*PI + THETA_ELPS(IIG,JJG)
-
-         ENDIF IF_ELLIPSE_COUPLED
-
-      ENDIF IF_CFD_COUPLED
+      ENDIF IF_ELLIPSE
 
    ENDDO
 ENDDO
@@ -1255,12 +1207,14 @@ IF (.NOT.PREDICTOR) THEN
    IF (CC_IBM) THEN
       DO JJG=1,JBAR
          DO IIG=1,IBAR
+            SF => SURFACE(LS_SURF_INDEX(IIG,JJG))
+            IF (.NOT. SF%VEG_LSET_SPREAD) CYCLE
             DO IKT=LS_KLO_TERRAIN(IIG,JJG),K_LS(IIG,JJG)
                ! Loop over all CFACEs corresponding to IIG,JJG and set ONE_D%T_IGN and ONE_D%PHI_LS as below
                ICF = CCVAR(IIG,JJG,IKT,3); IF(ICF<1) CYCLE  ! IBM_IDCF = 3 CUT_FCE container for this cell.
                DO IW=1,CUT_FACE(ICF)%NFACE ! All IBM_INBOUNDARY CFACES on this cell.
                   ONE_D => CFACE( CUT_FACE(ICF)%CFACE_INDEX(IW) ) % ONE_D
-                  IF (PHI_LS(IIG,JJG)>=0._EB .AND. ONE_D%T_IGN>1.E5_EB) ONE_D%T_IGN = T
+                  IF (PHI_LS(IIG,JJG)>=0._EB .AND. ONE_D%T_IGN>1.E5_EB) CALL IGNITE_GRID_CELL
                   ONE_D%PHI_LS = PHI_LS(IIG,JJG)
                ENDDO
             ENDDO
@@ -1269,23 +1223,51 @@ IF (.NOT.PREDICTOR) THEN
    ELSE
       DO JJG=1,JBAR
          DO IIG=1,IBAR
+            SF => SURFACE(LS_SURF_INDEX(IIG,JJG))
+            IF (.NOT. SF%VEG_LSET_SPREAD) CYCLE
             IF (K_LS(IIG,JJG)<1) CYCLE
             IC = CELL_INDEX(IIG,JJG,K_LS(IIG,JJG))
             IW = WALL_INDEX(IC,-3)
             ONE_D => WALL(IW)%ONE_D
-            IF (PHI_LS(IIG,JJG)>=0._EB .AND. ONE_D%T_IGN>1.E5_EB) ONE_D%T_IGN = T
+            IF (PHI_LS(IIG,JJG)>=0._EB .AND. ONE_D%T_IGN>1.E5_EB) CALL IGNITE_GRID_CELL
             ONE_D%PHI_LS = PHI_LS(IIG,JJG)
          ENDDO
       ENDDO
    ENDIF
 ENDIF
 
+T_USED(15) = T_USED(15) + CURRENT_TIME() - T_NOW
+
+CONTAINS
+
+
+!> \brief Set the time, burning duration, and burning rate of a newly ignited grid cell
+
+SUBROUTINE IGNITE_GRID_CELL
+
+REAL(EB) :: CROSSING_DISTANCE
+
+ONE_D%T_IGN = T
+ROS_MAG = MAX(0.01_EB,SQRT(SR_X_LS(IIG,JJG)**2 + SR_Y_LS(IIG,JJG)**2))  ! Rate Of Spread magnitude
+IF (ABS(SR_X_LS(IIG,JJG))<TWO_EPSILON_EB) THEN
+   CROSSING_DISTANCE = DY(JJG)
+ELSEIF (ABS(SR_Y_LS(IIG,JJG))<TWO_EPSILON_EB) THEN
+   CROSSING_DISTANCE = DX(IIG)
+ELSE
+   CROSSING_DISTANCE = SQRT( (MIN(DX(IIG),ABS(SR_X_LS(IIG,JJG)/SR_Y_LS(IIG,JJG))*DY(JJG)))**2 + &
+                             (MIN(DY(JJG),ABS(SR_Y_LS(IIG,JJG)/SR_X_LS(IIG,JJG))*DX(IIG)))**2 )
+ENDIF
+ONE_D%BURN_DURATION = SF%BURN_DURATION + CROSSING_DISTANCE/ROS_MAG
+ONE_D%AREA_ADJUST = SF%BURN_DURATION/ONE_D%BURN_DURATION
+
+END SUBROUTINE IGNITE_GRID_CELL
+
 END SUBROUTINE LEVEL_SET_FIRESPREAD
 
 
-SUBROUTINE GET_BOUNDARY_VALUES
+!> \brief Retrieve various quantities from neighboring meshes after MPI exchange
 
-! Retrieve various quantities from neighboring meshes.
+SUBROUTINE GET_BOUNDARY_VALUES
 
 INTEGER :: IIG,JJG,II,JJ,IOR
 
@@ -1322,6 +1304,8 @@ ENDDO
 
 CONTAINS
 
+! \brief Grab boundary values of PHI_LS from MPI storage arrays
+
 SUBROUTINE FILL_BOUNDARY_VALUES
 
 USE COMPLEX_GEOMETRY, ONLY : IBM_CGSC,IBM_SOLID,IBM_CUTCFE
@@ -1329,8 +1313,6 @@ INTEGER :: IW,IIO,JJO,N_INT_CELLS,NOM,IC
 REAL(EB) :: PHI_LS_OTHER,U_LS_OTHER,V_LS_OTHER,Z_LS_OTHER
 TYPE (EXTERNAL_WALL_TYPE), POINTER :: EWC
 LOGICAL :: SOLID_CELL
-
-! Grab boundary values of PHI_LS from MPI storage arrays
 
 IF (IOR==3) THEN  ! get the CELL_INDEX of the grid cell adjacent to the exterior boundary of the current mesh
    IC = CELL_INDEX(IIG,JJG,KBAR)
@@ -1401,9 +1383,9 @@ END SUBROUTINE FILL_BOUNDARY_VALUES
 END SUBROUTINE GET_BOUNDARY_VALUES
 
 
-SUBROUTINE LEVEL_SET_SPREAD_RATE
+!> \brief Compute components of spread rate vector
 
-! Compute components of spread rate vector
+SUBROUTINE LEVEL_SET_SPREAD_RATE
 
 INTEGER :: I,J,IM1,IP1,JM1,JP1
 REAL(EB) :: COS_THETA_WIND,COS_THETA_SLOPE,COS_THETA_WIND_H,COS_THETA_WIND_B, &
@@ -1464,7 +1446,7 @@ FLUX_ILOOP: DO J=1,JBAR
 
       DEGREES_SLOPE = ATAN(MAG_ZT(I,J))*RAD_TO_DEGREE
 
-      IF (LSET_ELLIPSE) THEN
+      IF (LEVEL_SET_ELLIPSE) THEN
 
          ! Effective wind direction (theta) is clockwise from y-axis (Richards 1990)
          COS_THETA = COS(THETA_ELPS(I,J)) !V_LS(I,J) / MAG_U
@@ -1610,10 +1592,12 @@ ENDDO FLUX_ILOOP
 END SUBROUTINE LEVEL_SET_SPREAD_RATE
 
 
-SUBROUTINE LEVEL_SET_ADVECT_FLUX
+!> \brief Compute the flux terms of the level set equation
+!>
+!> \details Use the spread rate [SR_X_LS,SR_Y_LS] to compute the limited scalar gradient and take dot product with 
+!> spread rate vector to get advective flux
 
-! Use the spread rate [SR_X_LS,SR_Y_LS] to compute the limited scalar gradient
-! and take dot product with spread rate vector to get advective flux
+SUBROUTINE LEVEL_SET_ADVECT_FLUX
 
 INTEGER :: I,IM1,IP1,IP2,J,JM1,JP1,JP2
 REAL(EB), DIMENSION(:) :: Z(4)
@@ -1670,25 +1654,18 @@ ENDDO
 END SUBROUTINE LEVEL_SET_ADVECT_FLUX
 
 
-REAL(EB) FUNCTION SCALAR_FACE_VALUE_LS(SR_XY,Z,LIMITER)
-
-! This function computes the scalar value on a face.
-! The scalar is denoted Z, and the velocity is denoted U.
-! The gradient (computed elsewhere) is a central difference across
-! the face subject to a flux limiter.  The flux limiter choices are:
-!
-! LIMITER = 1 implements the MINMOD limiter
-! LIMITER = 2 implements the SUPERBEE limiter of Roe
-! LIMITER = 3 implements first-order upwinding (monotone)
-!
-!                    location of face
-!
-!                            f
+!> \brief Compute the scalar value on the flux at a cell face
+!>
+!> \param SR_XY If positive, indicates that flow is from left to right
+!> \param Z Scalar quantity
+!> \param LIMITER Flux limiter (1) MINMOD, (2) SUPERBEE, (3) first-order upwinding (monotone)
+!> \details
+!                           face
 !    |     o     |     o     |     o     |     o     |
-!                     SRXY        SRXY
-!                 (if f_east)  (if f_west)
 !         Z(1)        Z(2)        Z(3)        Z(4)
 !
+REAL(EB) FUNCTION SCALAR_FACE_VALUE_LS(SR_XY,Z,LIMITER)
+
 INTEGER, INTENT(IN) :: LIMITER
 REAL(EB) :: SR_XY
 REAL(EB), INTENT(IN), DIMENSION(4) :: Z
@@ -2517,8 +2494,8 @@ mlh = SF%VEG_LSET_MLH
                
 SELECT CASE(ROTHERMEL_FUEL_INDEX)
    CASE(1)  ! 'Short Grass'
-      w0d1=0.1659     ; w0d2=0.        ; w0d3=0.        ; w0lh=0.        ; w0lw=0. 
-      svd1=11483.     ; svd2=358.      ; svd3=98.       ; svlh=4921.     ; svlw=4921. 
+      w0d1=0.1659     ; w0d2=0.        ; w0d3=0.        ; w0lh=0.        ; w0lw=0.     ! dry mass per unit area (kg/m2)
+      svd1=11483.     ; svd2=358.      ; svd3=98.       ; svlh=4921.     ; svlw=4921.  ! surface area to volume (1/m)
       mx=0.12         ; depth=0.3048   ; rhop=512.      ; heat=18607.    ; st=0.0555      ; se=0.01
    CASE(2)  ! 'Timbergrass'
       w0d1=0.448      ; w0d2=0.224     ; w0d3=0.112     ; w0lh=0.112     ; w0lw=0. 
@@ -2591,7 +2568,7 @@ swml = swlh*mlh + swlw*mlw
 ! Characteristic surface-to-volume ratio [R(71,72)]
 
 sigma = s2wt/swt
-SF%VEG_LSET_SIGMA = sigma*0.01  ! Convert from 1/m to 1/cm
+SF%VEG_LSET_SIGMA = sigma*0.01_EB  ! Convert from 1/m to 1/cm
    
 ! Mean bulk density [R(74)]
    
@@ -2704,6 +2681,11 @@ hsk  = rhob*hskz/swt
 ! Reaction intensity [R(27,58),Albini,p.89]
    
 bigIr = gamma*heat*etas*etaM
+
+IF (LEVEL_SET_COUPLED) THEN
+   SF%MASS_FLUX(REACTION(1)%FUEL_SMIX_INDEX) = bigIr/heat
+   SF%BURN_DURATION = 756._EB/SF%VEG_LSET_SIGMA   ! Albini (Eq. 14)
+ENDIF
    
 ! Rate of spread [R(52)] and the rate of spread in the absence of wind and with no slope.
    

@@ -25,6 +25,7 @@ $QFDS -d Atmospheric_Effects lapse_rate.fds
 $QFDS -p  8 -d Atmospheric_Effects wind_example.fds
 $QFDS -p 32 -n 8 -d Atmospheric_Effects wind_example_32.fds
 
+$QFDS -d Complex_Geometry geom_extruded_poly.fds
 $QFDS -d Complex_Geometry geom_intersection.fds
 $QFDS -d Complex_Geometry geom_bad_inverted_normals.fds
 $QFDS -d Complex_Geometry geom_simple.fds
@@ -180,6 +181,7 @@ $QFDS -d Fires box_burn_away4.fds
 $QFDS -d Fires box_burn_away5.fds
 $QFDS -d Fires box_burn_away6.fds
 $QFDS -d Fires box_burn_away7.fds
+$QFDS -d Fires box_burn_away8.fds
 $QFDS -d Fires box_burn_away_2D.fds
 $QFDS -d Fires box_burn_away_2D_residue.fds
 $QFDS -d Fires box_burn_away1_pyro3d_vs_pyro1d.fds
@@ -717,6 +719,11 @@ $QFDS -d Turbulence yplus_32.fds
 $QFDS -d Turbulence ribbed_channel_20.fds
 $QFDS -d Turbulence ribbed_channel_40.fds
 $QFDS -d Turbulence ribbed_channel_80.fds
+# $QFDS -d Turbulence ribbed_channel_160.fds # output file committed to fds/Verification/Turbulence/
+# $QFDS -d Turbulence ribbed_channel_geom_20.fds
+# $QFDS -d Turbulence ribbed_channel_geom_40.fds
+# $QFDS -d Turbulence ribbed_channel_geom_80.fds
+# $QFDS -d Turbulence ribbed_channel_geom_160.fds # output file committed to fds/Verification/Turbulence/
 $QFDS -d Turbulence sem_flat_leddy_p2.fds
 $QFDS -d Turbulence sem_par_leddy_p2.fds
 $QFDS -d Turbulence sem_atm_leddy_p2.fds
@@ -731,6 +738,8 @@ $QFDS -p 2 -d WUI ground_vegetation_conv.fds
 $QFDS -p 2 -d WUI ground_vegetation_drag.fds
 $QFDS -p 2 -d WUI ground_vegetation_load.fds
 $QFDS -p 2 -d WUI ground_vegetation_radi.fds
+$QFDS -d WUI hot_rods.fds
+$QFDS -d WUI level_set_fuel_model_1.fds
 $QFDS -d WUI pine_needles.fds
 $QFDS -d WUI radiation_gas-veg_consistency_gas.fds
 $QFDS -d WUI radiation_gas-veg_consistency_veg.fds
