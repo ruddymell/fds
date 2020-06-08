@@ -364,25 +364,53 @@ real(EB) :: mpv_volit_sum=0._EB
 
 ! Parameters associated with parallel mode
 
-INTEGER :: MYID=0,N_MPI_PROCESSES=1,EVAC_PROCESS=-1,LOWER_MESH_INDEX=1000000000,UPPER_MESH_INDEX=-1000000000
+INTEGER :: MYID=0                                           !< The MPI process index, starting at 0
+INTEGER :: N_MPI_PROCESSES=1                                !< Number of MPI processes
+INTEGER :: EVAC_PROCESS=-1                                 
+INTEGER :: LOWER_MESH_INDEX=1000000000                      !< Lower bound of meshes controlled by the current MPI process
+INTEGER :: UPPER_MESH_INDEX=-1000000000                     !< Upper bound of meshes controlled by the current MPI process
 LOGICAL :: PROFILING=.FALSE.
-INTEGER, ALLOCATABLE, DIMENSION(:) :: PROCESS,FILE_COUNTER
+INTEGER, ALLOCATABLE, DIMENSION(:) :: PROCESS               !< The MPI process of the given mesh index
+INTEGER, ALLOCATABLE, DIMENSION(:) :: FILE_COUNTER          !< Counter for the number of output files currently opened
 
 ! Time parameters
 
-REAL(EB) :: DT_INITIAL,T_BEGIN,T_END,T_END_GEOM,TWFIN,TIME_SHRINK_FACTOR,RELAXATION_FACTOR=1._EB,MPI_TIMEOUT=300._EB,&
-            DT_END_MINIMUM=2._EB*EPSILON(1._EB),DT_END_FILL=1.E-6_EB
-EQUIVALENCE(T_END,TWFIN)
+REAL(EB) :: DT_INITIAL                                      !< Initial time step size (s)
+REAL(EB) :: T_BEGIN                                         !< Beginning time of simulation (s)
+REAL(EB) :: T_END                                           !< Ending time of simulation (s)
+REAL(EB) :: T_END_GEOM
+REAL(EB) :: TIME_SHRINK_FACTOR                              !< Factor to reduce specific heat and total run time
+REAL(EB) :: RELAXATION_FACTOR=1._EB                         !< Factor used to relax normal velocity nudging at immersed boundaries
+REAL(EB) :: MPI_TIMEOUT=300._EB                             !< Time to wait for MPI messages to be received (s)
+REAL(EB) :: DT_END_MINIMUM=TWO_EPSILON_EB                   !< Smallest possible final time step (s)
+REAL(EB) :: DT_END_FILL=1.E-6_EB                            
 
 ! Combustion parameters
 
-REAL(EB) :: Y_O2_INFTY=0.232378_EB,Y_CO2_INFTY=0.000595_EB,Y_H2O_INFTY=0._EB,&
-            MW_AIR=28.84852_EB,MW_N2,MW_O2,MW_CO2,MW_H2O,MW_CO,MW_H2,VISIBILITY_FACTOR, &
-            EC_LL,ZZ_MIN_GLOBAL=1.E-10_EB,&
-            FIXED_MIX_TIME=-1._EB,INITIAL_UNMIXED_FRACTION=1._EB,RICHARDSON_ERROR_TOLERANCE=1.E-6_EB,&
-            H_F_REFERENCE_TEMPERATURE=25._EB,FREE_BURN_TEMPERATURE=600._EB, &
-            AUTO_IGNITION_TEMPERATURE=0._EB,AIT_EXCLUSION_ZONE(6,MAX_AIT_EXCLUSION_ZONES)=-1.E6_EB
-REAL(FB) :: HRRPUV_MAX_SMV=1200._FB, TEMP_MAX_SMV=2000._FB
+REAL(EB) :: Y_O2_INFTY=0.232378_EB                                  !< Ambient mass fraction of oxygen
+REAL(EB) :: Y_CO2_INFTY=0.000595_EB                                 !< Ambient mass fraction of carbon dioxide
+REAL(EB) :: Y_H2O_INFTY=0._EB                                       !< Ambient mass fraction of water vapor
+REAL(EB) :: MW_AIR=28.84852_EB                                      !< Molecular weight of air (g/mol)
+REAL(EB) :: MW_N2                                                   !< Molecular weight of nitrogen (g/mol)
+REAL(EB) :: MW_O2                                                   !< Molecular weight of oxygen (g/mol)
+REAL(EB) :: MW_CO2                                                  !< Molecular weight of carbon dioxide (g/mol)
+REAL(EB) :: MW_H2O                                                  !< Molecular weight of water vapor (g/mol)
+REAL(EB) :: MW_CO                                                   !< Molecular weight of carbon monoxide (g/mol)
+REAL(EB) :: MW_H2                                                   !< Molecular weight of hydrogen (g/mol)
+REAL(EB) :: VISIBILITY_FACTOR=3._EB                                 !< Parameter in light extinction calculation
+REAL(EB) :: EC_LL                                                   !< Extinction Coefficient, Lower Limit (1/m)
+REAL(EB) :: ZZ_MIN_GLOBAL=1.E-10_EB                                 !< Minimum lumped species mass fraction
+REAL(EB) :: FIXED_MIX_TIME=-1._EB                                   !< User-specified reaction mixing time (s)
+REAL(EB) :: INITIAL_UNMIXED_FRACTION=1._EB                          !< Initial amount of mixed air-fuel in combustion chamber
+REAL(EB) :: RICHARDSON_ERROR_TOLERANCE=1.E-6_EB                     !< Error tolerance in Richardson extrapolation
+REAL(EB) :: H_F_REFERENCE_TEMPERATURE=25._EB                        !< Heat of formation reference temperature (C->K)
+REAL(EB) :: FREE_BURN_TEMPERATURE=600._EB                           !< Temperature above which fuel and oxygen burn freely (C->K)
+REAL(EB) :: AUTO_IGNITION_TEMPERATURE=0._EB                         !< Temperature above which reaction is allowed (C->K)
+REAL(EB) :: AIT_EXCLUSION_ZONE(6,MAX_AIT_EXCLUSION_ZONES)=-1.E6_EB  !< Volume in which AUTO_IGNITION_TEMPERATURE has no effect
+
+REAL(FB) :: HRRPUV_MAX_SMV=1200._FB                                 !< Clipping value used by Smokeview (kW/m3)
+REAL(FB) :: TEMP_MAX_SMV=2000._FB                                   !< Clipping value used by Smokeview (C)
+
 INTEGER :: N_SPECIES=0,N_REACTIONS,I_PRODUCTS=-1,I_WATER=-1,I_CO2=-1,N_TRACKED_SPECIES=0,N_SURFACE_DENSITY_SPECIES=0,&
            COMBUSTION_ODE_SOLVER=-1,EXTINCT_MOD=-1,MAX_CHEMISTRY_SUBSTEPS=20,MAX_PRIORITY=1,&
            N_PASSIVE_SCALARS=0,N_TOTAL_SCALARS=0,N_FIXED_CHEMISTRY_SUBSTEPS=-1
@@ -489,10 +517,9 @@ LOGICAL :: OUT_FILE_OPENED=.FALSE.
 CHARACTER(LABEL_LENGTH) :: MATL_NAME(1:1000)
 INTEGER :: N_SURF,N_SURF_RESERVED,N_MATL,MIRROR_SURF_INDEX,OPEN_SURF_INDEX,INTERPOLATED_SURF_INDEX,DEFAULT_SURF_INDEX=0, &
            INERT_SURF_INDEX=0,PERIODIC_SURF_INDEX,PERIODIC_WIND_SURF_INDEX,HVAC_SURF_INDEX=-1,EVACUATION_SURF_INDEX=-1,&
-           MASSLESS_TRACER_SURF_INDEX, MASSLESS_TARGET_SURF_INDEX,DROPLET_SURF_INDEX,VEGETATION_SURF_INDEX,NWP_MAX, &
-           SLICE_SURF_INDEX
+           MASSLESS_TRACER_SURF_INDEX, MASSLESS_TARGET_SURF_INDEX,DROPLET_SURF_INDEX,VEGETATION_SURF_INDEX,NWP_MAX
 REAL(EB), ALLOCATABLE, DIMENSION(:) :: AAS,BBS,DDS,DDT,DX_S,RDX_S,RDXN_S,DX_WGT_S, &
-                                       C_S,RHO_S,Q_S,TWO_DX_KAPPA_S,X_S_NEW,R_S,MF_FRAC,REGRID_FACTOR,R_S_NEW
+                                       RHO_S,Q_S,TWO_DX_KAPPA_S,X_S_NEW,R_S,MF_FRAC,REGRID_FACTOR,R_S_NEW
 REAL(EB), ALLOCATABLE, TARGET, DIMENSION(:) :: CCS
 INTEGER,  ALLOCATABLE, DIMENSION(:) :: LAYER_INDEX,CELL_COUNT
 
@@ -502,9 +529,10 @@ REAL(EB), ALLOCATABLE, DIMENSION(:,:) :: DSUM,USUM,PSUM
 
 ! Level Set vegetation fire spread
 
-LOGICAL :: VEG_LEVEL_SET=.FALSE.     !< Indicator of level set simulation
-LOGICAL :: LEVEL_SET_COUPLED=.TRUE.  !< Indicator for fire and wind level set coupling
-LOGICAL :: LEVEL_SET_ELLIPSE=.TRUE.  !< Indicator of Richards elliptical level set formulation
+INTEGER :: LEVEL_SET_MODE=0               !< Indicator of the type of level set calculation to be done
+LOGICAL :: LEVEL_SET_COUPLED_FIRE=.TRUE.  !< Indicator for fire and wind level set coupling
+LOGICAL :: LEVEL_SET_COUPLED_WIND=.TRUE.  !< Indicator for fire and wind level set coupling
+LOGICAL :: LEVEL_SET_ELLIPSE=.TRUE.       !< Indicator of Richards elliptical level set formulation
 LOGICAL :: LSET_TAN2
 
 ! Parameters for Terrain and Wind simulation needs
@@ -514,7 +542,6 @@ INTEGER :: N_VENT_TOTAL=0,SPONGE_CELLS,N_MEAN_FORCING_BINS
 REAL(EB), ALLOCATABLE, DIMENSION(:) :: MEAN_FORCING_SUM_U_VOL,MEAN_FORCING_SUM_V_VOL,MEAN_FORCING_SUM_W_VOL, &
                                        MEAN_FORCING_SUM_VOL_X,MEAN_FORCING_SUM_VOL_Y,MEAN_FORCING_SUM_VOL_Z, &
                                        U_MEAN_FORCING,V_MEAN_FORCING,W_MEAN_FORCING
-LOGICAL :: WIND_ONLY=.FALSE.
 
 ! Sprinkler Variables
 
