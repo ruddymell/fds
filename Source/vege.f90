@@ -2181,7 +2181,7 @@ PARTICLE_LOOP: DO I=1,NLP
       LP%VEG_Q_CHAROX  = -Q_VEG_CHAR*RDT_FE
       Q_VEG_CHAR_TOTAL = Q_VEG_CHAR_TOTAL + Q_VEG_CHAR
       TMP_VEG_NEW  = TMP_VEG_NEW - LPC%VEG_CHAR_ENTHALPY_FRACTION*Q_VEG_CHAR/CP_MASS_VEG_SOLID
-!     TMP_VEG_NEW  = MIN(TMP_CHAR_MAX,TMP_VEG_NEW)
+      TMP_VEG_NEW  = MIN(TMP_CHAR_MAX,TMP_VEG_NEW)
 !     print*,'vege: q_veg_char,temp_veg_new,',q_veg_char,tmp_veg_new
 !          print*,'------------------'
 !    ENDIF IF_CHAR_OXIDATION_LIN_2
