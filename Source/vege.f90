@@ -69,7 +69,8 @@ CALL POINT_TO_MESH(NM)
 !IF (VEG_LEVEL_SET_COUPLED .OR. VEG_LEVEL_SET_UNCOUPLED) RETURN
 
 TMP_BOIL           = 373._EB
-TMP_CHAR_MAX       = 1300._EB
+!TMP_CHAR_MAX       = 1300._EB !K
+TMP_CHAR_MAX = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
 CP_ASH             = 800._EB !J/kg/K specific heat of ash
 CP_H2O             = 4190._EB !J/kg/K specific heat of water
 DT_BC              = T - VEG_CLOCK_BC
@@ -1746,9 +1747,10 @@ LOGICAL :: VEG_DEGRADATION_LINEAR,VEG_DEGRADATION_ARRHENIUS
 REAL(EB) :: Q_VEG_CHAR_TOTAL,MPV_CHAR_CO2_TOTAL,MPV_CHAR_O2_TOTAL,MPV_CHAR_LOSS_TOTAL, &
             MPV_MOIST_LOSS_TOTAL,MPV_VOLIT_TOTAL,VEG_VF
 REAL(EB) :: VEG_CRITICAL_MASSFLUX,VEG_CRITICAL_MASSSOURCE
-REAL(EB) :: CM,CN
-REAL(EB) :: HCON_VEG_FORCED,HCON_VEG_FREE,LENGTH_SCALE,NUSS_HILPERT_CYL_FORCEDCONV,NUSS_MORGAN_CYL_FREECONV,RAYLEIGH_NUM, &
-            R_VEG_CYL_DIAM,HC_VERT_CYL,HC_HORI_CYL
+REAL(EB) :: CM,CN,PRANDTL,ONSX,NINE_SIXTEENTHS,EIGHT_TWENTYSEVENTHS
+
+REAL(EB) :: HCON_VEG_FORCED,HCON_VEG_FREE,LENGTH_SCALE,NUSS_ECKERT_CYL_FORCEDCONV,NUSS_HILPERT_CYL_FORCEDCONV, &
+            NUSS_CHURCHILL_CYL_FREECONV,NUSS_MORGAN_CYL_FREECONV,RAYLEIGH_NUM,R_VEG_CYL_DIAM,HC_VERT_CYL,HC_HORI_CYL
 
 !place holder
 REAL(EB) :: RCP_TEMPORARY
@@ -1768,6 +1770,9 @@ WW => W
 DT_FE  =  T - VEG_CLOCK_FE
 RDT_FE = 1._EB/DT_FE
 RCP_TEMPORARY = 1._EB/1010._EB
+ONSX = 1._EB/6._EB
+NINE_SIXTEENTHS = 9._EB/16._EB
+EIGHT_TWENTYSEVENTHS = 8._EB/27._EB
 
 !Critical mass flux (kg/(s m^2)
 VEG_CRITICAL_MASSFLUX = 0.0025_EB !kg/s/m^2 for qradinc=50 kW/m^2, M=4% measured by McAllister Fire Safety J., 61:200-206 2013
@@ -1778,7 +1783,8 @@ VEG_CRITICAL_MASSFLUX = 0.0025_EB !kg/s/m^2 for qradinc=50 kW/m^2, M=4% measured
 !are from the literature (Porterie et al., Num. Heat Transfer, 47:571-591, 2005)
 CP_H2O       = 4190._EB !J/kg/K specific heat of water
 TMP_H2O_BOIL = 373.15_EB
-TMP_CHAR_MAX = 1300._EB !K
+!TMP_CHAR_MAX = 1300._EB !K
+TMP_CHAR_MAX = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
 
 !Kinetic constants used by multiple investigators from Porterie or Morvan papers
 !VEG_A_H2O      = 600000._EB !1/s sqrt(K)
@@ -1945,6 +1951,11 @@ PARTICLE_LOOP: DO I=1,NLP
  CALL GET_VISCOSITY(ZZ_GET,MU_GAS,TMP_FILM) 
  CALL GET_CONDUCTIVITY(ZZ_GET,K_GAS,TMP_FILM) !W/m/K
  CALL GET_SPECIFIC_HEAT(ZZ_GET,CP_GAS,TMP_FILM)
+ PRANDTL = CP_GAS*MU_GAS/K_GAS
+
+! - Free convection heat transfer coefficients
+ LENGTH_SCALE = 4._EB/SV_VEG !horizontal cylinder diameter
+ RAYLEIGH_NUM = 9.8_EB*ABS(TMP_GMV)*LENGTH_SCALE**3*RHO_GAS**2*CP_GAS/(TMP_FILM*MU_GAS*K_GAS)
 
 ! Veg thermophysical properties
  TMP_GMV  = TMP_GAS - TMP_VEG
@@ -1953,9 +1964,9 @@ PARTICLE_LOOP: DO I=1,NLP
  CP_ASH   = 1244._EB*(TMP_VEG/TMPA)**0.315 !J/kg/K Lautenberger & Fernandez-Pell, C&F 2009 156:1503-1513
  R_VEG_CYL_DIAM = 0.25_EB*SV_VEG
 
-! Convective heat flux on thermal elements
+! Convective heat flux on thermal elements following FDS
 
- IF_QCONV_MAX: IF (LPC%VEG_HCONV_CYLMAX) THEN !Max of forced and free
+ IF_QCONV_MAX: IF (LPC%VEG_HCONV_CYLMAX) THEN
 
    RE_D     = RHO_GAS*QREL*4._EB/(SV_VEG*MU_GAS)
 
@@ -1973,14 +1984,9 @@ PARTICLE_LOOP: DO I=1,NLP
      CN = 0.683_EB
      CM = 0.466_EB
    ENDIF
-   NUSS_HILPERT_CYL_FORCEDCONV = CN*(RE_D**CM)*PR_ONTH !Nusselt number
+   NUSS_HILPERT_CYL_FORCEDCONV = CN*(RE_D**CM)*PRANDTL**ONTH !Nusselt number
 !print '(A,2x,2ES12.4)','nuss Hilpert,Re', NUSS_HILPERT_CYL_FORCEDCONV,re_d
    HCON_VEG_FORCED = 0.25_EB*SV_VEG*K_GAS*NUSS_HILPERT_CYL_FORCEDCONV !W/m^2 from Hilpert (cylinder)
-
-! - Free convection heat transfer coefficients
-   LENGTH_SCALE = 4._EB/SV_VEG !horizontal cylinder diameter
-   RAYLEIGH_NUM = 9.8_EB*ABS(TMP_GMV)*LENGTH_SCALE**3*RHO_GAS**2*CP_GAS/(TMP_FILM*MU_GAS*K_GAS)
-!print*,'ZZ_GET',ZZ_GET(:)
 
 ! Morgan correlation free convection (Incropera & DeWitt, 4th Edition, p. 501-502) for horizontal cylinder of diameter
 ! 4/SV_VEG, free convection
@@ -2007,12 +2013,33 @@ PARTICLE_LOOP: DO I=1,NLP
 ! In single particle test gave same result as Morgan free convection above
 !  HCON_VEG_FREE = 1.31_EB*ABS(TMP_GMV)**ONTH
 
+!Weighting of free and forced convection coefficient as in FDS
    QCON_VEG = MAX(HCON_VEG_FORCED,HCON_VEG_FREE)*TMP_GMV !W/m^2
 
-!Weighting of Nusselt numbers following Morvan et al. "A 3D physical model ...", 101:39-52 2018
-   QCON_VEG = 0.25_EB*SV_VEG*K_GAS*SQRT(NUSS_HILPERT_CYL_FORCEDCONV**2._EB + NUSS_MORGAN_CYL_FREECONV**2._EB)
-
  ENDIF IF_QCONV_MAX
+
+! Convective heat flux on thermeal elements following Morvan et al. 101:39-52 2018 FSJ
+!
+ IF_QCONV_MIXED: IF (LPC%VEG_HCONV_CYLMIXED) THEN 
+   
+   RE_D     = RHO_GAS*QREL*4._EB/(SV_VEG*MU_GAS)
+   
+! Forced convection 
+! Eckert & Drake, see Holman & Bhattacharyya, "Heat Transfer", 10th Edition, p. 289
+  IF (RE_D <= 1300._EB) THEN
+    NUSS_ECKERT_CYL_FORCEDCONV = (0.43_EB + 0.5_EB*SQRT(RE_D))*PRANDTL**(0.38_EB)
+  ELSE
+    NUSS_ECKERT_CYL_FORCEDCONV = 0.25_EB*RE_D**(0.6_EB)*PRANDTL**(0.38_EB)
+  ENDIF
+
+!Free convection
+! Churchill & Chu, see Incropera & DeWitt, 6th Edition p. 502
+  NUSS_CHURCHILL_CYL_FREECONV = ( 0.6_EB + ( 0.387_EB*RAYLEIGH_NUM**ONSX / &
+                                 (1._EB + (0.599_EB/PRANDTL)**NINE_SIXTEENTHS)**EIGHT_TWENTYSEVENTHS ) )**2._EB
+
+  QCON_VEG = 0.25_EB*SV_VEG*K_GAS*SQRT(NUSS_ECKERT_CYL_FORCEDCONV**2._EB + NUSS_CHURCHILL_CYL_FREECONV**2._EB)*TMP_GMV
+ 
+ ENDIF IF_QCONV_MIXED
 
  IF (LPC%VEG_HCONV_CYLLAM) THEN  !Laminar flow, cyl of diameter 4/sv_veg
   HC_VERT_CYL = 1.42_EB*(ABS(TMP_GMV)*R_VEG_CYL_DIAM)**0.25_EB !Holman vertical cylinder
@@ -2332,6 +2359,9 @@ PARTICLE_LOOP: DO I=1,NLP
  !MW_TERM    = MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM
  MW_AVERAGE = R0/RSUM(II,JJ,KK)/RHO_GAS*(MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM)
  Q_ENTHALPY = Q_VEG_MOIST + Q_VEG_VOLIT - (1.0_EB - LPC%VEG_CHAR_ENTHALPY_FRACTION)*Q_VEG_CHAR
+!if (t <= dt_fe) write(9999,'(A)')'time, tmp_veg, tmp_gas, q_veg_char, qcon_veg, qrad_veg'
+!write(9999,'(1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3)') &
+!  t,',',tmp_veg_new-273._EB,',',tmp_gas-273._EB,',',q_veg_char,',',qcon_veg,',',qrad_veg
 
  !D_LAGRANGIAN(II,JJ,KK) = D_LAGRANGIAN(II,JJ,KK)  +           & 
  !                         (-QCON_VEG*RCP_GAS + Q_ENTHALPY*RCP_GAS)/(RHO_GAS*TMP_GAS) + &

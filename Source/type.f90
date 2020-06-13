@@ -153,7 +153,8 @@ LOGICAL :: VEG_CHAR_OXIDATION           !< Flag to turn on char ox model
 LOGICAL :: VEG_IGNITED                  !<
 LOGICAL :: VEG_HCONV_CYLLAM             !< Flag to implement laminar convective heat coefficient, hc
 LOGICAL :: VEG_HCONV_CYLRE              !< Flag to immplment Reynolds number dependent hc
-LOGICAL :: VEG_HCONV_CYLMAX             !< Flag to invoke MAX(hc_free,hc_forced)
+LOGICAL :: VEG_HCONV_CYLMAX             !< Flag to invoke MAX(hc_free,hc_forced) as in FDS
+LOGICAL :: VEG_HCONV_CYLMIXED           !< Flag to inovke hc as in Morvan et al. 101:39-52 2018 Fire Safety J
 LOGICAL :: VEG_WFDS_FE                  !< Flag to implement fuel element model of veg 
 
 END TYPE LAGRANGIAN_PARTICLE_CLASS_TYPE
