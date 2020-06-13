@@ -1953,16 +1953,14 @@ PARTICLE_LOOP: DO I=1,NLP
  CALL GET_SPECIFIC_HEAT(ZZ_GET,CP_GAS,TMP_FILM)
  PRANDTL = CP_GAS*MU_GAS/K_GAS
 
-! - Free convection heat transfer coefficients
- LENGTH_SCALE = 4._EB/SV_VEG !horizontal cylinder diameter
- RAYLEIGH_NUM = 9.8_EB*ABS(TMP_GMV)*LENGTH_SCALE**3*RHO_GAS**2*CP_GAS/(TMP_FILM*MU_GAS*K_GAS)
-
 ! Veg thermophysical properties
  TMP_GMV  = TMP_GAS - TMP_VEG
  CP_VEG   = (0.01_EB + 0.0037_EB*TMP_VEG)*1000._EB !J/kg/K Ritchie IAFSS 1997:177-188
  CP_CHAR  = 420._EB + 2.09_EB*TMP_VEG + 6.85E-4_EB*TMP_VEG**2 !J/kg/K Park etal. C&F 2010 147:481-494
  CP_ASH   = 1244._EB*(TMP_VEG/TMPA)**0.315 !J/kg/K Lautenberger & Fernandez-Pell, C&F 2009 156:1503-1513
  R_VEG_CYL_DIAM = 0.25_EB*SV_VEG
+ LENGTH_SCALE = 4._EB/SV_VEG !horizontal cylinder diameter
+ RAYLEIGH_NUM = 9.8_EB*ABS(TMP_GMV)*LENGTH_SCALE**3*RHO_GAS**2*CP_GAS/(TMP_FILM*MU_GAS*K_GAS)
 
 ! Convective heat flux on thermal elements following FDS
 
