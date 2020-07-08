@@ -69,8 +69,8 @@ CALL POINT_TO_MESH(NM)
 !IF (VEG_LEVEL_SET_COUPLED .OR. VEG_LEVEL_SET_UNCOUPLED) RETURN
 
 TMP_BOIL           = 373._EB
-!TMP_CHAR_MAX       = 1300._EB !K
-TMP_CHAR_MAX = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
+!TMP_CHAR_MAX      = 1300._EB !K
+TMP_CHAR_MAX       = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
 CP_ASH             = 800._EB !J/kg/K specific heat of ash
 CP_H2O             = 4190._EB !J/kg/K specific heat of water
 DT_BC              = T - VEG_CLOCK_BC
@@ -1732,7 +1732,7 @@ REAL(EB) :: MPV_ADDED,MPV_MOIST_LOSS,MPV_VOLIT,MPV_CHAR_LOSS_MAX,MPV_MOIST_LOSS_
 REAL(EB) :: QCON_VEG,QNET_VEG,QRAD_VEG,QREL,TMP_GMV,Q_FOR_DRYING,Q_VOLIT,Q_FOR_VOLIT, &
             Q_UPTO_VOLIT
 REAL(EB) :: H_SENS_VEG_VOLIT,Q_ENTHALPY,Q_VEG_MOIST,Q_VEG_VOLIT,Q_VEG_CHAR
-REAL(EB) :: MW_AVERAGE,MW_VEG_MOIST_TERM,MW_VEG_VOLIT_TERM
+REAL(EB) :: MW_AVERAGE,MW_VEG_MOIST_TERM,MW_VEG_VOLIT_TERM,MW_VEG_CO2_CHAROX_TERM
 REAL(EB) :: XI,YJ,ZK
 REAL(EB) :: A_H2O_VEG,E_H2O_VEG,A_PYR_VEG,E_PYR_VEG,H_PYR_VEG,R_H_PYR_VEG
 REAL(EB) :: A_CHAR_VEG,E_CHAR_VEG,BETA_CHAR_VEG,NU_CHAR_VEG,NU_ASH_VEG,NU_O2_CHAR_VEG, &
@@ -1784,7 +1784,8 @@ VEG_CRITICAL_MASSFLUX = 0.0025_EB !kg/s/m^2 for qradinc=50 kW/m^2, M=4% measured
 CP_H2O       = 4190._EB !J/kg/K specific heat of water
 TMP_H2O_BOIL = 373.15_EB
 !TMP_CHAR_MAX = 1300._EB !K
-TMP_CHAR_MAX = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
+ TMP_CHAR_MAX = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
+!TMP_CHAR_MAX = 2700._EB + 273. !K, same as FDS
 
 !Kinetic constants used by multiple investigators from Porterie or Morvan papers
 !VEG_A_H2O      = 600000._EB !1/s sqrt(K)
@@ -1866,6 +1867,7 @@ PARTICLE_LOOP: DO I=1,NLP
  MPV_ADDED       = 0.0_EB
  MW_VEG_MOIST_TERM = 0.0_EB
  MW_VEG_VOLIT_TERM = 0.0_EB
+ MW_VEG_CO2_CHAROX_TERM = 0.0_EB
  CP_VEG_FUEL_AND_CHAR_MASS = 0.0_EB
  CP_MASS_VEG_SOLID         = 0.0_EB
  VEG_DEGRADATION_LINEAR    = .FALSE.
@@ -1957,7 +1959,10 @@ PARTICLE_LOOP: DO I=1,NLP
  TMP_GMV  = TMP_GAS - TMP_VEG
  CP_VEG   = (0.01_EB + 0.0037_EB*TMP_VEG)*1000._EB !J/kg/K Ritchie IAFSS 1997:177-188
  CP_CHAR  = 420._EB + 2.09_EB*TMP_VEG + 6.85E-4_EB*TMP_VEG**2 !J/kg/K Park etal. C&F 2010 147:481-494
- CP_ASH   = 1244._EB*(TMP_VEG/TMPA)**0.315 !J/kg/K Lautenberger & Fernandez-Pell, C&F 2009 156:1503-1513
+ CP_ASH   = 1244._EB*(TMP_VEG/300._EB)**0.315_EB !J/kg/K Lautenberger & Fernandez-Pell, C&F 2009 156:1503-1513
+!CP_VEG   = 1000._EB
+!CP_CHAR  = 1000._EB
+!CP_ASH   = 1000._EB
  R_VEG_CYL_DIAM = 0.25_EB*SV_VEG
  LENGTH_SCALE = 4._EB/SV_VEG !horizontal cylinder diameter
  RAYLEIGH_NUM = 9.8_EB*ABS(TMP_GMV)*LENGTH_SCALE**3*RHO_GAS**2*CP_GAS/(TMP_FILM*MU_GAS*K_GAS)
@@ -2069,6 +2074,7 @@ PARTICLE_LOOP: DO I=1,NLP
  DTMP_VEG    = DT_FE*QNET_VEG/(CP_MASS_VEG_SOLID + CP_H2O*MPV_MOIST)
  TMP_VEG_NEW = TMP_VEG + DTMP_VEG
  IF (TMP_VEG_NEW < TMPA) TMP_VEG_NEW = TMP_GAS
+
 !print*,'---------------------------------------------------------'
 !print 1113,ii,jj,kk,idt
 !1113 format(2x,4(I3))
@@ -2154,7 +2160,7 @@ PARTICLE_LOOP: DO I=1,NLP
 !Enthalpy of fuel element volatiles using Cp,volatiles(T) from Ritchie
          H_SENS_VEG_VOLIT = 0.0445_EB*(TMP_VEG**1.5_EB - TMP_GAS**1.5_EB) - 0.136_EB*(TMP_VEG - TMP_GAS)
          H_SENS_VEG_VOLIT = H_SENS_VEG_VOLIT*1000._EB !J/kg
-         Q_VEG_VOLIT      = CHAR_FCTR*MPV_VOLIT*H_SENS_VEG_VOLIT !J/m^3
+         Q_VEG_VOLIT      = MPV_VOLIT*H_SENS_VEG_VOLIT !J/m^3
          MW_VEG_VOLIT_TERM= MPV_VOLIT/SPECIES(FUEL_INDEX)%MW
         ENDIF IF_MD_VOLIT
 
@@ -2183,6 +2189,7 @@ PARTICLE_LOOP: DO I=1,NLP
      MPV_CHAR      = MPV_CHAR - MPV_CHAR_LOSS
      MPV_ASH       = MPV_ASH + NU_ASH_VEG*MPV_CHAR_LOSS
      MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
+     MW_VEG_CO2_CHAROX_TERM = MPV_CHAR_CO2/MW_CO2
      MPV_CHAR_O2   = NU_O2_CHAR_VEG*MPV_CHAR_LOSS
      CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
      LP%VEG_CHAR_MASS  = MPV_CHAR !kg/m^3
@@ -2281,13 +2288,16 @@ PARTICLE_LOOP: DO I=1,NLP
      IF_CHAR_OXIDATION: IF (LPC%VEG_CHAR_OXIDATION) THEN
        ZZ_GET(1:N_TRACKED_SPECIES) = ZZ(II,JJ,KK,1:N_TRACKED_SPECIES)
        CALL GET_MASS_FRACTION(ZZ_GET,O2_INDEX,Y_O2)
-       MPV_CHAR_LOSS = DT_FE*RHO_GAS*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*LP%VEG_PACKING_RATIO*  &
-                        EXP(-E_CHAR_VEG/TMP_VEG)*(1._EB+BETA_CHAR_VEG*SQRT(RE_D))
+!      MPV_CHAR_LOSS = DT_FE*RHO_GAS*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*LP%VEG_PACKING_RATIO*  &
+!                       EXP(-E_CHAR_VEG/TMP_VEG)*(1._EB+BETA_CHAR_VEG*SQRT(RE_D))
+       MPV_CHAR_LOSS = DT_FE*MPV_CHAR*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*EXP(-E_CHAR_VEG/TMP_VEG) !Grishin 2004
        MPV_CHAR_LOSS = MIN(MPV_CHAR_LOSS,MPV_CHAR_LOSS_MAX) !user bound
        MPV_CHAR_LOSS = MIN(MPV_CHAR,MPV_CHAR_LOSS)
        MPV_CHAR      = MPV_CHAR - MPV_CHAR_LOSS
        MPV_ASH       = MPV_ASH + NU_ASH_VEG*MPV_CHAR_LOSS
-       MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
+       MPV_CHAR_CO2  = 0.0_EB
+       IF (LPC%VEG_CHAR_OX_CO2GAIN_O2LOSS) MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
+       MW_VEG_CO2_CHAROX_TERM = MPV_CHAR_CO2/MW_CO2
        MPV_CHAR_O2   = NU_O2_CHAR_VEG*MPV_CHAR_LOSS
        CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
        LP%VEG_CHAR_MASS = MPV_CHAR !kg/m^3
@@ -2305,7 +2315,7 @@ PARTICLE_LOOP: DO I=1,NLP
          CP_MASS_VEG_SOLID = CP_ASH*MPV_ASH
          LP%VEG_CHAR_MASS = 0.0_EB
 !        IF(LPC%VEG_REMOVE_CHARRED) LP%R = 0.0001_EB*LPC%KILL_RADIUS !fuel element will be removed
-         IF(LPC%VEG_REMOVE_CHARRED) LP%ONE_D%BURNAWAY = .TRUE. !fuel element will be removed
+         IF(LPC%VEG_REMOVE_CHARRED .OR. NU_ASH_VEG==0._EB) LP%ONE_D%BURNAWAY = .TRUE. !fuel element will be removed
        ENDIF
 !  ENDIF IF_CHAR_OXIDATION_2
 
@@ -2328,7 +2338,7 @@ PARTICLE_LOOP: DO I=1,NLP
  LP%ONE_D%TMP_F = TMP_VEG_NEW
  LP%VEG_TMP     = TMP_VEG_NEW
 
- LP%VEG_EMISS = 4.*SIGMA*LP%VEG_KAPPA*TMP_VEG_NEW**4 !used in RTE solver
+ LP%VEG_EMISS = VEG_VF*4.*SIGMA*LP%VEG_KAPPA*TMP_VEG_NEW**4 !used in RTE solver
 
  MPV_CHAR_LOSS_TOTAL  = MPV_CHAR_LOSS_TOTAL  + MPV_CHAR_LOSS !needed for subcycling
  MPV_MOIST_LOSS_TOTAL = MPV_MOIST_LOSS_TOTAL + MPV_MOIST_LOSS !needed for subcycling
@@ -2355,24 +2365,22 @@ PARTICLE_LOOP: DO I=1,NLP
  CALL GET_SPECIFIC_HEAT(ZZ_GET,CP_GAS,TMP_GAS)
  RCP_GAS    = 1._EB/CP_GAS
  !MW_TERM    = MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM
- MW_AVERAGE = R0/RSUM(II,JJ,KK)/RHO_GAS*(MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM)
+ MW_AVERAGE = R0/RSUM(II,JJ,KK)/RHO_GAS*(MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM + MW_VEG_CO2_CHAROX_TERM)
  Q_ENTHALPY = Q_VEG_MOIST + Q_VEG_VOLIT - (1.0_EB - LPC%VEG_CHAR_ENTHALPY_FRACTION)*Q_VEG_CHAR
-!if (t <= dt_fe) write(9999,'(A)')'time, tmp_veg, tmp_gas, q_veg_char, qcon_veg, qrad_veg'
-!write(9999,'(1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3)') &
-!  t,',',tmp_veg_new-273._EB,',',tmp_gas-273._EB,',',q_veg_char,',',qcon_veg,',',qrad_veg
+!if (t <= dt_fe) write(9999,'(A)')'time, tmp_veg, tmp_gas, q_veg_char, qcon_veg, qrad_veg, Rchar, veg mass, char mass, &
+!                                  ash mass, total mass, cp_solid'
+!write(9999,'(1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,&
+!A,1ES13.3,A,1ES13.3)') & 
+!t,',',tmp_veg_new-273._EB,',',tmp_gas-273._EB,',',-veg_vf*q_veg_char,',',veg_vf*qcon_veg,',',veg_vf*qrad_veg,',', &
+! mpv_char_loss*rdt_fe,',', &
+! mpv_veg*v_cell,',',mpv_char*v_cell,',',mpv_ash*v_cell,',',(mpv_char+mpv_veg+mpv_ash)*v_cell,',',cp_mass_veg_solid
 
- !D_LAGRANGIAN(II,JJ,KK) = D_LAGRANGIAN(II,JJ,KK)  +           & 
- !                         (-QCON_VEG*RCP_GAS + Q_ENTHALPY*RCP_GAS)/(RHO_GAS*TMP_GAS) + &
- !                         RDT_FE*MW_AVERAGE 
- D_SOURCE(II,JJ,KK) = D_SOURCE(II,JJ,KK)  + (RDT_FE*Q_ENTHALPY*RCP_GAS/(RHO_GAS*TMP_GAS) + RDT_FE*MW_AVERAGE) 
+ D_SOURCE(II,JJ,KK) = D_SOURCE(II,JJ,KK) + VEG_VF*RDT_FE*Q_ENTHALPY*RCP_GAS/(RHO_GAS*TMP_GAS) &
+                                         + VEG_VF*RDT_FE*MW_AVERAGE 
 
 
  TMP_VEG   = TMP_VEG_NEW
- D_SOURCE(II,JJ,KK) = D_SOURCE(II,JJ,KK) + (-QCON_VEG*RCP_GAS)/(RHO_GAS*TMP_GAS)
-!M_DOT_PPP(II,JJ,KK,2) = MPV_VOLIT*RDT_FE
-!M_DOT(2,NM) = MPV_VOLIT*V_CELL
-!mpv_volit_sum = mpv_volit_sum + mpv_volit
-!print '(A,1x,1ES13.4)','mpv_volit_sum = ',mpv_volit_sum
+ D_SOURCE(II,JJ,KK) = D_SOURCE(II,JJ,KK) + (-VEG_VF*QCON_VEG*RCP_GAS)/(RHO_GAS*TMP_GAS)
 
  IF (MPV_MOIST <= MPV_MOIST_MIN) THEN !for time sub cycling
    MPV_MOIST = 0.0_EB
@@ -2392,13 +2400,11 @@ PARTICLE_LOOP: DO I=1,NLP
 !zz(ii,jj,kk,5) = 0.1
 !print '(A,1x,2ES13.4)','vege:mpv_added,mpv_volit_total',mpv_added,mpv_volit_total
 
+! LP%VEG_MLR    = VEG_VF*MPV_ADDED*RDT_FE !kg/m^3/s used in FVX,FVY,FVZ along with drag in part.f90
+
 ! Add water vapor, fuel vapor, and CO2 mass to total density
-! MPV_ADDED     = MPV_MOIST_LOSS + MPV_VOLIT + MPV_CHAR_CO2
-  LP%VEG_MLR    = MPV_ADDED*RDT_FE !kg/m^3/s used in FVX,FVY,FVZ along with drag in part.f90
-  RHO(II,JJ,KK) = RHO_GAS + MPV_ADDED
-  RRHO_GAS_NEW  = 1._EB/RHO(II,JJ,KK)
-! print*,'NM =',NM
-! print*,'** ',rho(ii,jj,kk)
+! RHO(II,JJ,KK) = RHO_GAS + VEG_VF*MPV_ADDED
+! RRHO_GAS_NEW  = 1._EB/RHO(II,JJ,KK)
 
 !Need to have the following in the input file in order to inject water vapor from drying and CO2 from
 !char oxidation, then n=I_WATER=4, n=I_CO2=5,n=3 are lumped combustion products CO2 and H2O, n=I_FUEL=2 is
@@ -2409,24 +2415,22 @@ PARTICLE_LOOP: DO I=1,NLP
 ! Add gas species created by degradation of vegetation Yi_new = (Yi_old*rho_old + change in rho_i)/rho_new
 ! Add water vapor mass from drying to water vapor mass fraction
   IF (I_WATER > 0) THEN 
-!  ZZ(II,JJ,KK,I_WATER) = ZZ(II,JJ,KK,I_WATER) +  MPV_MOIST_LOSS*RRHO_GAS_NEW
-   ZZ(II,JJ,KK,I_WATER) = ZZ(II,JJ,KK,I_WATER) + (MPV_MOIST_LOSS_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_WATER))*RRHO_GAS_NEW
-!  ZZ(II,JJ,KK,I_WATER) = MIN(1._EB,ZZ(II,JJ,KK,I_WATER))
-!  DMPVDT_FM_VEG(II,JJ,KK,I_WATER) = DMPVDT_FM_VEG(II,JJ,KK,I_WATER) + RDT_FE*MPV_MOIST_LOSS
+!  ZZ(II,JJ,KK,I_WATER) = ZZ(II,JJ,KK,I_WATER) + (VEG_VF*MPV_MOIST_LOSS_TOTAL - &
+!                                                 MPV_ADDED*ZZ(II,JJ,KK,I_WATER))*RRHO_GAS_NEW
+   M_DOT_PPP(II,JJ,KK,I_WATER) = RDT_FE*MPV_MOIST_LOSS
   ENDIF
 
 ! Add fuel vapor mass from pyrolysis to fuel mass fraction
   I_FUEL = REACTION(1)%FUEL_SMIX_INDEX
   IF (I_FUEL /= 0) THEN 
-!  ZZ(II,JJ,KK,I_FUEL) = ZZ(II,JJ,KK,I_FUEL) + MPV_VOLIT*RRHO_GAS_NEW
-   ZZ(II,JJ,KK,I_FUEL) = ZZ(II,JJ,KK,I_FUEL) + (MPV_VOLIT_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_FUEL))*RRHO_GAS_NEW
-!  ZZ(II,JJ,KK,I_FUEL) = MIN(1._EB,ZZ(II,JJ,KK,I_FUEL))
-!  DMPVDT_FM_VEG(II,JJ,KK,I_FUEL) = DMPVDT_FM_VEG(II,JJ,KK,I_FUEL) + RDT_FE*MPV_VOLIT
+!  ZZ(II,JJ,KK,I_FUEL) = ZZ(II,JJ,KK,I_FUEL) + (VEG_VF*MPV_VOLIT_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_FUEL))*RRHO_GAS_NEW
+   M_DOT_PPP(II,JJ,KK,I_FUEL) = RDT_FE*MPV_VOLIT_TOTAL
   ENDIF
 
 ! Add CO2 mass, due to production during char oxidation, to CO2 mass fraction
   IF (I_CO2 /= -1 .AND. LPC%VEG_CHAR_OXIDATION) THEN 
-   ZZ(II,JJ,KK,I_CO2) = ZZ(II,JJ,KK,I_CO2) + (MPV_CHAR_CO2_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_CO2))*RRHO_GAS_NEW
+!  ZZ(II,JJ,KK,I_CO2) = ZZ(II,JJ,KK,I_CO2) + (VEG_VF*MPV_CHAR_CO2_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_CO2))*RRHO_GAS_NEW
+   M_DOT_PPP(II,JJ,KK,I_CO2) = RDT_FE*MPV_CHAR_CO2_TOTAL
   ENDIF
 
 ! Remove O2 from gas due to char oxidation ***  this was incorrect and cannot be done because oygen is combined with

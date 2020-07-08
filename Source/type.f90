@@ -156,6 +156,7 @@ LOGICAL :: VEG_HCONV_CYLRE              !< Flag to immplment Reynolds number dep
 LOGICAL :: VEG_HCONV_CYLMAX             !< Flag to invoke MAX(hc_free,hc_forced) as in FDS
 LOGICAL :: VEG_HCONV_CYLMIXED           !< Flag to inovke hc as in Morvan et al. 101:39-52 2018 Fire Safety J
 LOGICAL :: VEG_WFDS_FE                  !< Flag to implement fuel element model of veg 
+LOGICAL :: VEG_CHAR_OX_CO2GAIN_O2LOSS   !< Flag to implement CO2 production and O2 consumption during char oxidaation
 
 END TYPE LAGRANGIAN_PARTICLE_CLASS_TYPE
 
