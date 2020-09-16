@@ -2137,6 +2137,9 @@ ELSE PARTICLE_NON_STATIC_IF ! Drag calculation for stationary, airborne particle
       CASE (VEG_WFDS_FE_DRAG)
 !        BETA = LP%PWT*RVC*(0.5_EB*C_DRAG*A_DRAG*QREL + LP%M_DOT/RHO_G)
          BETA = LPC%VEG_DRAG_CONSTANT*LP%VEG_SV*LP%VEG_PACKING_RATIO*QREL*C_DRAG
+!print '(A,1x,5ES13.3)','part: beta, 2*lpc%veg_drag_constant, drag factor, c_drag, qrel', &
+!                              beta,2._EB*lpc%veg_drag_constant,          &
+!                              lpc%veg_drag_constant*lp%veg_sv*lp%veg_packing_ratio,c_drag,qrel
          LP%ACCEL_X = -UBAR*BETA
          LP%ACCEL_Y = -VBAR*BETA
          LP%ACCEL_Z = -WBAR*BETA

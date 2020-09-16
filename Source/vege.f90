@@ -1726,26 +1726,28 @@ REAL(EB) :: DT_FE,RDT_FE,V_CELL,V_VEG
 REAL(EB) :: CP_ASH,CP_H2O,CP_CHAR,H_VAP_H2O,TMP_H2O_BOIL
 REAL(EB) :: K_GAS,MU_GAS,RHO_GAS,RRHO_GAS_NEW,TMP_FILM,TMP_GAS,UBAR,VBAR,WBAR,UREL,VREL,WREL
 REAL(EB) :: CHAR_FCTR,CHAR_FCTR2,CP_VEG,DTMP_VEG,MPV_MOIST,MPV_MOIST_MIN,DMPV_VEG,MPV_VEG,MPV_VEG_MIN, &
-            SV_VEG,TMP_VEG,TMP_VEG_NEW
+            SV_VEG,TMP_VEG,TMP_VEG_NEW,DMPV_CHAR
 !REAL(EB) :: TMP_IGNITOR
 REAL(EB) :: MPV_ADDED,MPV_MOIST_LOSS,MPV_VOLIT,MPV_CHAR_LOSS_MAX,MPV_MOIST_LOSS_MAX,MPV_VOLIT_MAX
 REAL(EB) :: QCON_VEG,QNET_VEG,QRAD_VEG,QREL,TMP_GMV,Q_FOR_DRYING,Q_VOLIT,Q_FOR_VOLIT, &
             Q_UPTO_VOLIT
 REAL(EB) :: H_SENS_VEG_VOLIT,Q_ENTHALPY,Q_VEG_MOIST,Q_VEG_VOLIT,Q_VEG_CHAR
-REAL(EB) :: MW_AVERAGE,MW_VEG_MOIST_TERM,MW_VEG_VOLIT_TERM,MW_VEG_CO2_CHAROX_TERM
+REAL(EB) :: MW_MIXTURE,MW_VEG_MOIST_TERM,MW_VEG_VOLIT_TERM,MW_VEG_CO2_CHAROX_TERM,MW_TERM,MW_SPECIES_ADD,&
+            YO2_AIR
 REAL(EB) :: XI,YJ,ZK
 REAL(EB) :: A_H2O_VEG,E_H2O_VEG,A_PYR_VEG,E_PYR_VEG,H_PYR_VEG,R_H_PYR_VEG
 REAL(EB) :: A_CHAR_VEG,E_CHAR_VEG,BETA_CHAR_VEG,NU_CHAR_VEG,NU_ASH_VEG,NU_O2_CHAR_VEG, &
             MPV_ASH,MPV_ASH_MAX,MPV_CHAR,MPV_CHAR_LOSS,MPV_CHAR_MIN,MPV_CHAR_CO2,MPV_CHAR_O2,Y_O2, &
             H_CHAR_VEG ,ORIG_PACKING_RATIO,CP_VEG_FUEL_AND_CHAR_MASS,CP_MASS_VEG_SOLID,     &
-            TMP_CHAR_MAX
+            TMP_CHAR_MAX,MPV_CHAR_AIR,MPV_CHAR_PRODUCTS
 REAL(EB) :: ZZ_GET(1:N_TRACKED_SPECIES)
 INTEGER :: I,II,JJ,KK,IIX,JJY,KKZ,IPC,I_FUEL
 INTEGER, INTENT(IN) :: NM
-LOGICAL :: VEG_DEGRADATION_LINEAR,VEG_DEGRADATION_ARRHENIUS
+LOGICAL :: VEG_DEGRADATION_LINEAR,VEG_DEGRADATION_ARRHENIUS,VEG_CHAR_OX_CO2GAIN_O2LOSS
 !INTEGER :: IDT
 REAL(EB) :: Q_VEG_CHAR_TOTAL,MPV_CHAR_CO2_TOTAL,MPV_CHAR_O2_TOTAL,MPV_CHAR_LOSS_TOTAL, &
-            MPV_MOIST_LOSS_TOTAL,MPV_VOLIT_TOTAL,VEG_VF
+            MPV_MOIST_LOSS_TOTAL,MPV_VOLIT_TOTAL,VEG_VF,MPV_CHAR_AIR_TOTAL,MPV_CHAR_PRODUCTS_TOTAL, & 
+            MW_VEG_AIR_CHAROX_TERM
 REAL(EB) :: VEG_CRITICAL_MASSFLUX,VEG_CRITICAL_MASSSOURCE
 REAL(EB) :: CM,CN,PRANDTL,ONSX,NINE_SIXTEENTHS,EIGHT_TWENTYSEVENTHS
 
@@ -1784,8 +1786,9 @@ VEG_CRITICAL_MASSFLUX = 0.0025_EB !kg/s/m^2 for qradinc=50 kW/m^2, M=4% measured
 CP_H2O       = 4190._EB !J/kg/K specific heat of water
 TMP_H2O_BOIL = 373.15_EB
 !TMP_CHAR_MAX = 1300._EB !K
- TMP_CHAR_MAX = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
-!TMP_CHAR_MAX = 2700._EB + 273. !K, same as FDS
+!TMP_CHAR_MAX = 2400._EB !K Morvan et al. Fire Safety J. 101:39-52 2018
+ TMP_CHAR_MAX = 2700._EB + 273. !K, same as FDS
+YO2_AIR = 0.23_EB
 
 !Kinetic constants used by multiple investigators from Porterie or Morvan papers
 !VEG_A_H2O      = 600000._EB !1/s sqrt(K)
@@ -1865,6 +1868,8 @@ PARTICLE_LOOP: DO I=1,NLP
  MPV_CHAR_O2     = 0.0_EB
  MPV_VOLIT       = 0.0_EB
  MPV_ADDED       = 0.0_EB
+ MPV_CHAR_AIR    = 0.0_EB
+ MPV_CHAR_PRODUCTS = 0.0_EB
  MW_VEG_MOIST_TERM = 0.0_EB
  MW_VEG_VOLIT_TERM = 0.0_EB
  MW_VEG_CO2_CHAROX_TERM = 0.0_EB
@@ -1873,7 +1878,9 @@ PARTICLE_LOOP: DO I=1,NLP
  VEG_DEGRADATION_LINEAR    = .FALSE.
  VEG_DEGRADATION_ARRHENIUS = .FALSE.
  MPV_CHAR_CO2_TOTAL   = 0.0_EB
- MPV_CHAR_O2_TOTAL   = 0.0_EB 
+ MPV_CHAR_O2_TOTAL    = 0.0_EB 
+ MPV_CHAR_AIR_TOTAL   = 0.0_EB
+ MPV_CHAR_PRODUCTS_TOTAL   = 0.0_EB
  MPV_CHAR_LOSS_TOTAL  = 0.0_EB 
  MPV_MOIST_LOSS_TOTAL = 0.0_EB 
  MPV_VOLIT_TOTAL  = 0.0_EB 
@@ -1988,7 +1995,6 @@ PARTICLE_LOOP: DO I=1,NLP
      CM = 0.466_EB
    ENDIF
    NUSS_HILPERT_CYL_FORCEDCONV = CN*(RE_D**CM)*PRANDTL**ONTH !Nusselt number
-!print '(A,2x,2ES12.4)','nuss Hilpert,Re', NUSS_HILPERT_CYL_FORCEDCONV,re_d
    HCON_VEG_FORCED = 0.25_EB*SV_VEG*K_GAS*NUSS_HILPERT_CYL_FORCEDCONV !W/m^2 from Hilpert (cylinder)
 
 ! Morgan correlation free convection (Incropera & DeWitt, 4th Edition, p. 501-502) for horizontal cylinder of diameter
@@ -2073,7 +2079,7 @@ PARTICLE_LOOP: DO I=1,NLP
 !print '(A,5ES12.3)','vege:dt,tmpveg,qnet_veg,cp_mass_veg_solid,cph20,mpv_moist',tmp_veg,qnet_veg,cp_mass_veg_solid,cp_h2o,mpv_moist
  DTMP_VEG    = DT_FE*QNET_VEG/(CP_MASS_VEG_SOLID + CP_H2O*MPV_MOIST)
  TMP_VEG_NEW = TMP_VEG + DTMP_VEG
- IF (TMP_VEG_NEW < TMPA) TMP_VEG_NEW = TMP_GAS
+ IF (TMP_VEG_NEW < TMPA .AND. TMPA == LPC%TMP_INITIAL) TMP_VEG_NEW = TMP_GAS
 
 !print*,'---------------------------------------------------------'
 !print 1113,ii,jj,kk,idt
@@ -2188,8 +2194,9 @@ PARTICLE_LOOP: DO I=1,NLP
      MPV_CHAR_LOSS = MIN(MPV_CHAR,MPV_CHAR_LOSS)
      MPV_CHAR      = MPV_CHAR - MPV_CHAR_LOSS
      MPV_ASH       = MPV_ASH + NU_ASH_VEG*MPV_CHAR_LOSS
-     MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
-     MW_VEG_CO2_CHAROX_TERM = MPV_CHAR_CO2/MW_CO2
+     MPV_CHAR_CO2  = 0.0_EB
+     IF (LPC%VEG_CHAR_OX_CO2GAIN_O2LOSS) MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
+     MW_VEG_CO2_CHAROX_TERM = MPV_CHAR_CO2/MW_CO2/YO2_AIR
      MPV_CHAR_O2   = NU_O2_CHAR_VEG*MPV_CHAR_LOSS
      CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
      LP%VEG_CHAR_MASS  = MPV_CHAR !kg/m^3
@@ -2257,7 +2264,8 @@ PARTICLE_LOOP: DO I=1,NLP
        MPV_VEG      = MPV_VEG - DMPV_VEG
 
        MPV_VOLIT    = CHAR_FCTR*DMPV_VEG 
-       MPV_CHAR     = MPV_CHAR + LPC%VEG_CHAR_FRACTION*DMPV_VEG !kg/m^3
+       DMPV_CHAR    = LPC%VEG_CHAR_FRACTION*DMPV_VEG
+       MPV_CHAR     = MPV_CHAR + DMPV_CHAR !kg/m^3
 !      MPV_CHAR     = MPV_CHAR + LPC%VEG_CHAR_FRACTION*MPV_VOLIT !kg/m^3
        CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
 
@@ -2288,27 +2296,32 @@ PARTICLE_LOOP: DO I=1,NLP
      IF_CHAR_OXIDATION: IF (LPC%VEG_CHAR_OXIDATION) THEN
        ZZ_GET(1:N_TRACKED_SPECIES) = ZZ(II,JJ,KK,1:N_TRACKED_SPECIES)
        CALL GET_MASS_FRACTION(ZZ_GET,O2_INDEX,Y_O2)
-!      MPV_CHAR_LOSS = DT_FE*RHO_GAS*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*LP%VEG_PACKING_RATIO*  &
-!                       EXP(-E_CHAR_VEG/TMP_VEG)*(1._EB+BETA_CHAR_VEG*SQRT(RE_D))
-       MPV_CHAR_LOSS = DT_FE*MPV_CHAR*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*EXP(-E_CHAR_VEG/TMP_VEG) !Grishin 2004
-       MPV_CHAR_LOSS = MIN(MPV_CHAR_LOSS,MPV_CHAR_LOSS_MAX) !user bound
-       MPV_CHAR_LOSS = MIN(MPV_CHAR,MPV_CHAR_LOSS)
-       MPV_CHAR      = MPV_CHAR - MPV_CHAR_LOSS
-       MPV_ASH       = MPV_ASH + NU_ASH_VEG*MPV_CHAR_LOSS
-       MPV_CHAR_CO2  = 0.0_EB
-       IF (LPC%VEG_CHAR_OX_CO2GAIN_O2LOSS) MPV_CHAR_CO2  = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS
+       IF(LPC%VEG_CHAR_OX_GRISHIN) THEN
+         MPV_CHAR_LOSS = DT_FE*MPV_CHAR*Y_O2*A_CHAR_VEG*SV_VEG*EXP(-E_CHAR_VEG/TMP_VEG)
+       ELSE
+         MPV_CHAR_LOSS = DT_FE*RHO_GAS*Y_O2*A_CHAR_VEG/NU_O2_CHAR_VEG*SV_VEG*LP%VEG_PACKING_RATIO*  &
+                          EXP(-E_CHAR_VEG/TMP_VEG)*(1._EB+BETA_CHAR_VEG*SQRT(RE_D))
+       ENDIF
+       MPV_CHAR_LOSS          = MIN(MPV_CHAR_LOSS,MPV_CHAR_LOSS_MAX) !user bound
+       MPV_CHAR_LOSS          = MIN(MPV_CHAR,MPV_CHAR_LOSS)
+       MPV_CHAR               = MPV_CHAR - MPV_CHAR_LOSS
+       MPV_ASH                = MPV_ASH + NU_ASH_VEG*MPV_CHAR_LOSS
+       MPV_CHAR_AIR           = NU_O2_CHAR_VEG*MPV_CHAR_LOSS/YO2_AIR
+       MPV_CHAR_PRODUCTS      = MPV_CHAR_AIR + (1._EB - NU_ASH_VEG)*MPV_CHAR_LOSS
+       MPV_CHAR_O2            = NU_O2_CHAR_VEG*MPV_CHAR_LOSS
+       MPV_CHAR_CO2           = (1._EB + NU_O2_CHAR_VEG - NU_ASH_VEG)*MPV_CHAR_LOSS/MW_CO2
+       MW_VEG_AIR_CHAROX_TERM = MPV_CHAR_AIR/29._EB
        MW_VEG_CO2_CHAROX_TERM = MPV_CHAR_CO2/MW_CO2
-       MPV_CHAR_O2   = NU_O2_CHAR_VEG*MPV_CHAR_LOSS
-       CP_MASS_VEG_SOLID = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
-       LP%VEG_CHAR_MASS = MPV_CHAR !kg/m^3
-       LP%VEG_ASH_MASS  = MPV_ASH
+       CP_MASS_VEG_SOLID      = CP_VEG*MPV_VEG + CP_CHAR*MPV_CHAR + CP_ASH*MPV_ASH
+       LP%VEG_CHAR_MASS       = MPV_CHAR !kg/m^3
+       LP%VEG_ASH_MASS        = MPV_ASH
 
 ! Reduce veg element size based on char consumption
 !      LP%VEG_PACKING_RATIO = LP%VEG_PACKING_RATIO - MPV_CHAR_LOSS/(LPC%VEG_DENSITY*LPC%VEG_CHAR_FRACTION)
 !      LP%VEG_SV     = LPC%VEG_SV*(ORIG_PACKING_RATIO/LP%VEG_PACKING_RATIO)**0.333_EB 
 !      LP%VEG_KAPPA  = 0.25_EB*LP%VEG_SV*LP%VEG_PACKING_RATIO
 
-! Remove partical if char is fully consumed
+! Remove particle if char is fully consumed
        IF (MPV_CHAR <= MPV_CHAR_MIN .AND. MPV_VEG <= MPV_VEG_MIN) THEN 
 !        IF (MPV_ASH >= MPV_ASH_MAX .AND. MPV_VEG <= MPV_VEG_MIN) THEN 
 !        CP_MASS_VEG_SOLID = CP_CHAR*MPV_CHAR_MIN
@@ -2351,7 +2364,7 @@ PARTICLE_LOOP: DO I=1,NLP
 ! Check if critical mass flux condition is met
 !IF (MPV_ADDED*RDT_FE < VEG_CRITICAL_MASSSOURCE .AND. .NOT. LP%VEG_IGNITED) THEN
 ! MPV_ADDED      = 0.0_EB
-! MW_AVERAGE     = 0.0_EB
+! MW_MIXTURE     = 0.0_EB
 ! MPV_MOIST_LOSS = 0.0_EB
 ! MPV_VOLIT      = 0.0_EB
 ! Q_VEG_MOIST    = 0.0_EB
@@ -2364,19 +2377,31 @@ PARTICLE_LOOP: DO I=1,NLP
 
  CALL GET_SPECIFIC_HEAT(ZZ_GET,CP_GAS,TMP_GAS)
  RCP_GAS    = 1._EB/CP_GAS
- !MW_TERM    = MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM
- MW_AVERAGE = R0/RSUM(II,JJ,KK)/RHO_GAS*(MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM + MW_VEG_CO2_CHAROX_TERM)
+ MW_MIXTURE     = R0/RSUM(II,JJ,KK)
+ MW_SPECIES_ADD = MW_VEG_MOIST_TERM + MW_VEG_VOLIT_TERM + MW_VEG_CO2_CHAROX_TERM
+ MW_TERM        = MW_MIXTURE*MW_SPECIES_ADD/RHO_GAS
  Q_ENTHALPY = Q_VEG_MOIST + Q_VEG_VOLIT - (1.0_EB - LPC%VEG_CHAR_ENTHALPY_FRACTION)*Q_VEG_CHAR
-!if (t <= dt_fe) write(9999,'(A)')'time, tmp_veg, tmp_gas, q_veg_char, qcon_veg, qrad_veg, Rchar, veg mass, char mass, &
-!                                  ash mass, total mass, cp_solid'
-!write(9999,'(1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,&
-!A,1ES13.3,A,1ES13.3)') & 
-!t,',',tmp_veg_new-273._EB,',',tmp_gas-273._EB,',',-veg_vf*q_veg_char,',',veg_vf*qcon_veg,',',veg_vf*qrad_veg,',', &
-! mpv_char_loss*rdt_fe,',', &
-! mpv_veg*v_cell,',',mpv_char*v_cell,',',mpv_ash*v_cell,',',(mpv_char+mpv_veg+mpv_ash)*v_cell,',',cp_mass_veg_solid
+
+!print*,'(A,1x,4ES13.3)','mw_mixture,mw_h2o,mw_co2,mw_fuel',mw_mixture,mw_h2o,mw_co2,species(fuel_index)%mw
+
+! if (t <= dt_fe) write(9999,'(A)')'time, wfds pyr wfds div.q tmp_veg, wfds pyr wfds div.q tmp_gas, &
+!wfds pyr wfds div.q rho_dot_veg, wfds pyr wfds div.q rho_dot_char, wfds pyr wfds div.q q_veg_char, &
+!wfds pyr wfds div.q qrad_veg, wfds pyr wfds div.q qcon_veg, wfds pyr &
+! wfds div.q qrad + qcon, wfds pyr wfds div.q Rchar, wfds pyr wfds div.q veg mass, wfds pyr wfds div.q &
+! char mass, wfds pyr wfds div.q ash mass,wfds pyr wfds div.q total mass, &
+! wfds pyr wfds div.q cp_solid'
+!
+! write(9999,'(1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3, &
+!  A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3,A,1ES13.3)') & 
+!  t,',',tmp_veg_new-273._EB,',',tmp_gas-273._EB,',', &
+!  rdt_fe*dmpv_veg,',',rdt_fe*(dmpv_char-mpv_char_loss),',', &
+!  -veg_vf*q_veg_char,',',veg_vf*qrad_veg,',',veg_vf*qcon_veg,',',veg_vf*(qrad_veg+qcon_veg),',', &
+!  mpv_char_loss*rdt_fe,',', &
+!  mpv_veg*v_cell,',',mpv_char*v_cell,',',mpv_ash*v_cell,',',(mpv_char+mpv_veg+mpv_ash)*v_cell,',', &
+!  cp_mass_veg_solid
 
  D_SOURCE(II,JJ,KK) = D_SOURCE(II,JJ,KK) + VEG_VF*RDT_FE*Q_ENTHALPY*RCP_GAS/(RHO_GAS*TMP_GAS) &
-                                         + VEG_VF*RDT_FE*MW_AVERAGE 
+                                         + VEG_VF*RDT_FE*MW_TERM
 
 
  TMP_VEG   = TMP_VEG_NEW
@@ -2428,10 +2453,10 @@ PARTICLE_LOOP: DO I=1,NLP
   ENDIF
 
 ! Add CO2 mass, due to production during char oxidation, to CO2 mass fraction
-  IF (I_CO2 /= -1 .AND. LPC%VEG_CHAR_OXIDATION) THEN 
+! IF (I_CO2 /= -1 .AND. LPC%VEG_CHAR_OXIDATION) THEN 
 !  ZZ(II,JJ,KK,I_CO2) = ZZ(II,JJ,KK,I_CO2) + (VEG_VF*MPV_CHAR_CO2_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_CO2))*RRHO_GAS_NEW
-   M_DOT_PPP(II,JJ,KK,I_CO2) = RDT_FE*MPV_CHAR_CO2_TOTAL
-  ENDIF
+!  M_DOT_PPP(II,JJ,KK,I_CO2) = RDT_FE*MPV_CHAR_CO2_TOTAL
+! ENDIF
 
 ! Remove O2 from gas due to char oxidation ***  this was incorrect and cannot be done because oygen is combined with
 ! CO2 and H2O to make the lumped AIR species
@@ -2439,6 +2464,13 @@ PARTICLE_LOOP: DO I=1,NLP
 ! ZZ(II,JJ,KK,O2_INDEX) = ZZ(II,JJ,KK,O2_INDEX) - (MPV_CHAR_O2_TOTAL - MPV_ADDED*ZZ(II,JJ,KK,I_CO2))*RRHO_GAS_NEW
 ! ZZ(II,JJ,KK,O2_INDEX) = MAX(0.0_EB,ZZ(II,JJ,KK,O2_INDEX))
 !ENDIF
+
+! Remove AIR from gas due to char oxidation this is consistent with the lumped species approach 
+! Add PRODUCTS mass, due to production during char oxidation, this is consistent with the lumped species approach 
+ IF (VEG_CHAR_OX_CO2GAIN_O2LOSS .AND. LPC%VEG_CHAR_OXIDATION) THEN 
+   M_DOT_PPP(II,JJ,KK,1) = M_DOT_PPP(II,JJ,KK,1) - RDT_FE*MPV_CHAR_CO2
+   M_DOT_PPP(II,JJ,KK,3) = M_DOT_PPP(II,JJ,KK,3) + RDT_FE*MPV_CHAR_CO2_TOTAL
+ ENDIF
 
 !print '(A,1x,6I3)','vege:n_tracked_species,i_water,h2o_index,i_fuel,i_co2,os_index',n_tracked_species,i_water, &
 !                            h2o_index,i_fuel,i_co2,o2_index
